@@ -4,26 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: aicf-api
+    env_file: ".env"
     ports:
-      - "8080:8080"
-    environment:
-      PORT: "8080"
-      STORAGE_DIR: "/srv/data"
-      DB_PATH: "/srv/data/app.db"
-      INPUT_VIDEOS_DIR: "/srv/videos"
-      OUTPUT_VIDEOS_DIR: "/srv/data/generated"
-      GEMINI_API_KEY: "${GEMINI_API_KEY}"
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
-      OPENROUTER_MODEL: "${OPENROUTER_MODEL:-google/gemini-2.0-flash-001}"
-      TTS_BASE_URL: "http://tts:5002"
-      TTS_SYNTH_PATH: "/api/tts"
-      TTS_TIMEOUT_SECONDS: "30"
-      FFMPEG_BIN: "ffmpeg"
-      AUTOPILOT_ENABLED: "false"
-      AUTOPILOT_EVERY_SECONDS: "1800"
-      AUTOPILOT_TOPIC: ""
-      AUTOPILOT_PROMPT: "Write a high-retention script with a strong hook and punchy ending CTA."
-      AUTOPILOT_VOICE: ""
+      - "${PORT}:${PORT}"
     volumes:
       - ./data:/srv/data
       - ./videos:/srv/videos
@@ -31,7 +14,7 @@ services:
       - tts
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:${PORT}/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -43,7 +26,7 @@ services:
       dockerfile: Dockerfile
     container_name: aicf-tts
     ports:
-      - "9000:5002"
+      - "${TTS_PORT}:5002"
     environment:
       PIPER_VOICE: "${PIPER_VOICE:-}"
       PIPER_LANGUAGE: "${PIPER_LANGUAGE:-}"
