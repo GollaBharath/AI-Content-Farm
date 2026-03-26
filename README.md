@@ -1,79 +1,48 @@
 # AI-Content-Farm
 
-Clean-room Go implementation for generating short-form AI video jobs.
+Clean-room Go content pipeline with phone-first control UI, LLM script generation, manual script approval, TTS, FFmpeg rendering, and SQLite persistence.
 
-## Goals
+## Included Features
 
-- Brand-new repository and codebase with no inherited git history.
-- Modular pipeline architecture in Go.
-- External AI services integrated through interfaces.
+- Prompt-based script generation via OpenAI-compatible API.
+- Manual script approval/edit before render (`script_override`).
+- Orientation control: `portrait`, `landscape`, `square`, `original`, `custom`.
+- Background video library selection and upload from UI.
+- Runtime settings API (`/api/settings`) persisted in SQLite.
+- Job history persisted in SQLite.
+- Mobile-first web UI served at `/`.
 
-## Current Status
+## Core Endpoints
 
-- HTTP API implemented (`/healthz`, `/v1/jobs`, `/v1/jobs/{id}`).
-- Async in-memory job runner implemented.
-- Real TTS HTTP adapter and FFmpeg video renderer implemented.
-- Docker and Docker Compose setup included.
+- `GET /healthz`
+- `POST /v1/scripts/generate`
+- `POST /v1/jobs`
+- `GET /v1/jobs`
+- `GET /v1/jobs/{id}`
+- `GET /api/settings`
+- `PUT /api/settings`
+- `GET /api/videos`
+- `POST /api/videos/upload`
 
-## Project Structure
-
-```text
-cmd/api/                 # API entrypoint
-internal/config/         # Environment configuration
-internal/httpserver/     # HTTP handlers and server wiring
-internal/pipeline/       # Job models and async runner
-internal/storage/        # In-memory job store
-internal/trends/         # Trends provider interface and mock impl
-internal/tts/            # TTS client interface and HTTP adapter
-internal/video/          # Video builder interface and FFmpeg adapter
-configs/                 # Clean-room spec and provenance logs
-```
-
-## Runtime Requirements
-
-- `ffmpeg` available in `PATH` for local runs.
-- A TTS HTTP service compatible with `POST /api/tts` that returns WAV bytes.
-
-## Quick Start (Local)
+## Quick Start
 
 ```bash
 cp .env.example .env
-go run ./cmd/api
+docker compose up -d --build
 ```
 
-Health check:
+Open: `http://localhost:8080`
 
-```bash
-curl http://localhost:8080/healthz
-```
+## Environment
 
-Create a job:
+See `.env.example` for all options. Important keys:
 
-```bash
-curl -X POST http://localhost:8080/v1/jobs \
-	-H "Content-Type: application/json" \
-	-d '{
-		"category": "technology",
-		"voice": "en-us",
-		"target_seconds": 45,
-		"country_code": "US"
-	}'
-```
+- `DB_PATH` SQLite DB path for jobs/settings.
+- `INPUT_VIDEOS_DIR` folder containing source/background videos.
+- `OUTPUT_VIDEOS_DIR` folder where rendered videos are written.
+- `LLM_API_KEY` key for script generation.
 
-List jobs:
+## Notes
 
-```bash
-curl http://localhost:8080/v1/jobs
-```
-
-## Docker
-
-```bash
-docker compose up --build
-```
-
-## Next Milestones
-
-- Replace static trends provider with live data integration.
-- Add persistent storage for jobs and artifact metadata.
-- Add automated tests and CI workflow.
+- If `LLM_API_KEY` is empty, the app uses fallback local script generation.
+- Generated videos are accessible via `/outputs/<filename>`.

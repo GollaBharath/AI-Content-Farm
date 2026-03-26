@@ -12,11 +12,15 @@ const (
 )
 
 type Request struct {
-	Topic       string `json:"topic"`
-	Category    string `json:"category"`
-	Voice       string `json:"voice"`
-	TargetSecs  int    `json:"target_seconds"`
-	CountryCode string `json:"country_code"`
+	Topic           string `json:"topic"`
+	Prompt          string `json:"prompt"`
+	ScriptOverride  string `json:"script_override"`
+	Voice           string `json:"voice"`
+	Language        string `json:"language"`
+	Orientation     string `json:"orientation"`
+	CustomWidth     int    `json:"custom_width"`
+	CustomHeight    int    `json:"custom_height"`
+	BackgroundVideo string `json:"background_video"`
 }
 
 type Job struct {
@@ -25,6 +29,7 @@ type Job struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	Request      Request   `json:"request"`
+	Script       string    `json:"script,omitempty"`
 	OutputPath   string    `json:"output_path,omitempty"`
 	ErrorMessage string    `json:"error_message,omitempty"`
 }

@@ -9,19 +9,49 @@ services:
     environment:
       PORT: "8080"
       STORAGE_DIR: "/srv/data"
-      TTS_BASE_URL: "http://tts:10200"
+      DB_PATH: "/srv/data/app.db"
+      INPUT_VIDEOS_DIR: "/srv/videos"
+      OUTPUT_VIDEOS_DIR: "/srv/data/generated"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      OPENROUTER_MODEL: "${OPENROUTER_MODEL:-google/gemini-2.0-flash-001}"
+      TTS_BASE_URL: "http://tts:5002"
       TTS_SYNTH_PATH: "/api/tts"
       TTS_TIMEOUT_SECONDS: "30"
-      TRENDS_REGION: "US"
       FFMPEG_BIN: "ffmpeg"
+      AUTOPILOT_ENABLED: "false"
+      AUTOPILOT_EVERY_SECONDS: "1800"
+      AUTOPILOT_TOPIC: ""
+      AUTOPILOT_PROMPT: "Write a high-retention script with a strong hook and punchy ending CTA."
+      AUTOPILOT_VOICE: ""
     volumes:
       - ./data:/srv/data
+      - ./videos:/srv/videos
     depends_on:
       - tts
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   tts:
-    image: ghcr.io/rhasspy/piper:latest
+    build:
+      context: ./piper
+      dockerfile: Dockerfile
     container_name: aicf-tts
     ports:
-      - "9000:10200"
-    command: ["--http-port", "10200", "--voice", "en_US-lessac-medium"]
+      - "9000:5002"
+    environment:
+      PIPER_VOICE: "${PIPER_VOICE:-}"
+      PIPER_LANGUAGE: "${PIPER_LANGUAGE:-}"
+      PIPER_QUALITY: "${PIPER_QUALITY:-}"
+      PIPER_MODEL_DIR: "/models"
+    volumes:
+      - piper_models:/models
+    restart: unless-stopped
+
+volumes:
+  piper_models:
