@@ -117,47 +117,56 @@
 										✍️ Paste Manual Script
 									</button>
 								</div>
+								<p class="mode-help">
+									Have your own script? Use "Paste Manual Script" to skip AI and
+									render directly.
+								</p>
 							</div>
 
 							<div id="ai-script-section">
 								<button id="generate-script" class="btn btn-primary">
 									Generate Script Draft
 								</button>
-									<div id="generated-script-view" style="display: none">
+								<div id="generated-script-view" style="display: none">
 									<div class="form-group">
-									<label for="generated-title">Video Title</label>
-									<div class="copy-field">
-										<input
-											id="generated-title"
-											type="text"
-											readonly />
-										<button id="copy-title" class="btn btn-secondary btn-sm" title="Copy title">📋 Copy</button>
+										<label for="generated-title">Video Title</label>
+										<div class="copy-field">
+											<input id="generated-title" type="text" readonly />
+											<button
+												id="copy-title"
+												class="btn btn-secondary btn-sm"
+												title="Copy title">
+												📋 Copy
+											</button>
+										</div>
 									</div>
-								</div>
 
-								<div class="form-group">
-									<label for="script-override">Review & Edit Script</label>
-									<textarea
-										id="script-override"
-										rows="6"
-										placeholder="Edit the generated draft before rendering..."></textarea>
-								</div>
-
-								<div class="form-group">
-									<label for="generated-tags">Video Tags</label>
-									<div class="copy-field">
-										<input
-											id="generated-tags"
-											type="text"
-											readonly />
-										<button id="copy-tags" class="btn btn-secondary btn-sm" title="Copy tags">📋 Copy</button>
+									<div class="form-group">
+										<label for="script-override">Review & Edit Script</label>
+										<textarea
+											id="script-override"
+											rows="6"
+											placeholder="Edit the generated draft before rendering..."></textarea>
 									</div>
-								</div>
 
-								<div class="form-group">
-									<button id="render-job" class="btn btn-success">
-										🎬 Render Video
-									</button>
+									<div class="form-group">
+										<label for="generated-tags">Video Tags</label>
+										<div class="copy-field">
+											<input id="generated-tags" type="text" readonly />
+											<button
+												id="copy-tags"
+												class="btn btn-secondary btn-sm"
+												title="Copy tags">
+												📋 Copy
+											</button>
+										</div>
+									</div>
+
+									<div class="form-group">
+										<button id="render-job" class="btn btn-success">
+											🎬 Render Video
+										</button>
+									</div>
 								</div>
 							</div>
 
@@ -168,15 +177,22 @@
 										id="manual-script"
 										rows="6"
 										placeholder="Paste your custom script here..."></textarea>
+									<p class="mode-help">
+										Your pasted script will be used exactly as entered for
+										voiceover and rendering.
+									</p>
 								</div>
 								<button id="render-job-manual" class="btn btn-success">
 									🎬 Render Video
 								</button>
 							</div>
 
-							<div class="form-group">
+							<div class="form-grid preset-actions">
 								<button id="save-preset" class="btn btn-secondary btn-full">
 									💾 Save as Preset
+								</button>
+								<button id="delete-preset" class="btn btn-secondary btn-full">
+									🗑 Delete Preset
 								</button>
 							</div>
 						</div>
@@ -208,18 +224,32 @@
 							</button>
 						</div>
 						<div id="jobs" class="jobs-container"></div>
-						<button
-							id="refresh"
-							class="btn btn-secondary btn-sm"
-							title="Refresh jobs">
-							↻ Refresh
-						</button>
+						<div style="display: flex; gap: 8px">
+							<button
+								id="refresh"
+								class="btn btn-secondary btn-sm"
+								title="Refresh jobs">
+								↻ Refresh
+							</button>
+							<button
+								id="clear-queue"
+								class="btn btn-danger btn-sm"
+								title="Clear all jobs from queue">
+								✕ Clear Queue
+							</button>
+						</div>
 					</section>
 
 					<!-- Generated/Uploaded Videos Section -->
 					<section class="card videos-card">
 						<div class="section-header">
 							<h2>Videos</h2>
+							<button
+								id="refresh-videos"
+								class="btn btn-secondary btn-sm"
+								title="Refresh videos">
+								↻ Refresh
+							</button>
 						</div>
 
 						<!-- Video Tabs -->
@@ -261,7 +291,7 @@
 									id="youtube-url"
 									type="text"
 									placeholder="Paste YouTube link to split into 56s clips" />
-								<button id="import-youtube" class="btn btn-secondary btn-full">
+								<button id="import-youtube" class="btn btn-primary btn-full">
 									Import and Split
 								</button>
 							</div>

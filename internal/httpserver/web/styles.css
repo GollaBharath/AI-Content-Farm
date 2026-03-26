@@ -439,6 +439,7 @@ select {
 	padding: 12px;
 	background: var(--bg-secondary);
 	transition: all 0.2s;
+	overflow: hidden;
 }
 
 .job:hover {
@@ -450,6 +451,8 @@ select {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
 	margin-bottom: 8px;
 	font-size: 0.85rem;
 	color: var(--text-secondary);
@@ -471,7 +474,8 @@ select {
 	padding: 10px;
 	font-size: 0.8rem;
 	white-space: pre-wrap;
-	word-wrap: break-word;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 	max-height: 200px;
 	overflow: auto;
 	color: var(--text-secondary);
@@ -485,6 +489,9 @@ select {
 	margin-top: 8px;
 	color: var(--error);
 	font-size: 0.9rem;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 
 .job-link {
@@ -675,6 +682,12 @@ select {
 	border-color: var(--primary);
 }
 
+.mode-help {
+	margin: 8px 0 0;
+	font-size: 0.85rem;
+	color: var(--text-secondary);
+}
+
 /* Video Tabs */
 .video-tabs {
 	display: flex;
@@ -723,21 +736,41 @@ select {
 	margin-bottom: 8px;
 	display: flex;
 	justify-content: space-between;
-	align-items: center;
+	align-items: flex-start;
+	gap: 12px;
 	background: var(--bg-secondary);
 	font-size: 0.9rem;
 }
 
+.video-item-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.video-item.preview-only {
+	align-items: stretch;
+}
+
 .video-item-name {
 	font-weight: 500;
-	flex: 1;
+	display: block;
+	margin-bottom: 8px;
 	word-break: break-word;
+}
+
+.video-preview {
+	width: min(100%, 360px);
+	max-width: 100%;
+	display: block;
+	border-radius: 6px;
+	background: #000;
 }
 
 .video-item-actions {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 8px;
-	margin-left: 12px;
+	margin-left: 0;
 }
 
 .video-action-btn {

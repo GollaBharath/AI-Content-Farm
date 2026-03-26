@@ -52,7 +52,7 @@ func NewHTTPClient(baseURL, synthPath string, timeout time.Duration) *HTTPClient
 
 type synthRequest struct {
 	Text       string `json:"text"`
-	Voice      string `json:"voice,omitempty"`
+	VoiceKey   string `json:"voice_key,omitempty"`
 	SpeakerID  string `json:"speaker_id,omitempty"`
 	LanguageID string `json:"language_id,omitempty"`
 }
@@ -101,7 +101,7 @@ func (c *HTTPClient) synthesizeBytes(ctx context.Context, text, voice, language 
 
 	payload, err := json.Marshal(synthRequest{
 		Text:       text,
-		Voice:      voice,
+		VoiceKey:   voice,
 		SpeakerID:  voice,
 		LanguageID: language,
 	})
@@ -109,35 +109,46 @@ func (c *HTTPClient) synthesizeBytes(ctx context.Context, text, voice, language 
 		return nil, fmt.Errorf("marshal tts request: %w", err)
 	}
 
-	urlWithQuery := c.baseURL + c.synthPath + "?text=" + url.QueryEscape(text)
-	if strings.TrimSpace(voice) != "" {
-		urlWithQuery += "&voice=" + url.QueryEscape(voice)
-		urlWithQuery += "&speaker_id=" + url.QueryEscape(voice)
+	doer := c.http
+	if timeout := estimatedSynthesisTimeout(text, c.http.Timeout); timeout > c.http.Timeout {
+		clone := *c.http
+		clone.Timeout = timeout
+		doer = &clone
 	}
-	if strings.TrimSpace(language) != "" {
-		urlWithQuery += "&language_id=" + url.QueryEscape(language)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlWithQuery, nil)
+
+	jsonURL := c.baseURL + c.synthPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, jsonURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build tts request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "audio/wav, application/octet-stream")
 
-	resp, err := c.http.Do(req)
+	resp, err := doer.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("tts request failed: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		resp.Body.Close()
 
-		jsonURL := c.baseURL + c.synthPath
-		jsonReq, err := http.NewRequestWithContext(ctx, http.MethodPost, jsonURL, bytes.NewReader(payload))
+		form := url.Values{}
+		form.Set("text", text)
+		if strings.TrimSpace(voice) != "" {
+			form.Set("voice_key", voice)
+			form.Set("speaker_id", voice)
+		}
+		if strings.TrimSpace(language) != "" {
+			form.Set("language_id", language)
+		}
+
+		formReq, err := http.NewRequestWithContext(ctx, http.MethodPost, jsonURL, strings.NewReader(form.Encode()))
 		if err != nil {
 			return nil, fmt.Errorf("build fallback tts request: %w", err)
 		}
-		jsonReq.Header.Set("Content-Type", "application/json")
+		formReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		formReq.Header.Set("Accept", "audio/wav, application/octet-stream")
 
-		resp, err = c.http.Do(jsonReq)
+		resp, err = doer.Do(formReq)
 		if err != nil {
 			return nil, fmt.Errorf("fallback tts request failed: %w", err)
 		}
@@ -157,6 +168,22 @@ func (c *HTTPClient) synthesizeBytes(ctx context.Context, text, voice, language 
 		return nil, fmt.Errorf("tts response body was empty")
 	}
 	return audioBytes, nil
+}
+
+func estimatedSynthesisTimeout(text string, base time.Duration) time.Duration {
+	if base <= 0 {
+		base = 30 * time.Second
+	}
+
+	words := len(strings.Fields(text))
+	estimate := 30*time.Second + time.Duration(words)*120*time.Millisecond
+	if estimate < base {
+		estimate = base
+	}
+	if estimate > 8*time.Minute {
+		estimate = 8 * time.Minute
+	}
+	return estimate
 }
 
 func (c *HTTPClient) ListVoices(ctx context.Context) ([]Voice, error) {

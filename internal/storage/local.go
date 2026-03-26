@@ -153,6 +153,16 @@ func scanJob(s scanner) (job.Job, error) {
 	}, nil
 }
 
+func (s *JobStore) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM jobs`)
+	if err != nil {
+		return fmt.Errorf("clear jobs: %w", err)
+	}
+	return nil
+}
+
 func sqlTime(raw string) (time.Time, error) {
 	t, err := time.Parse(timeLayout, raw)
 	if err == nil {

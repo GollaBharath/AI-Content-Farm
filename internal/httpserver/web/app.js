@@ -4,6 +4,7 @@ const byId = (id) => document.getElementById(id);
 const statusEl = byId("status");
 const jobsEl = byId("jobs");
 const refreshBtn = byId("refresh");
+const clearQueueBtn = byId("clear-queue");
 const collapseJobsBtn = byId("collapse-jobs");
 const collapseSettingsBtn = byId("collapse-settings");
 
@@ -45,6 +46,7 @@ const importYouTubeBtn = byId("import-youtube");
 
 const generatedVideosEl = byId("generated-videos");
 const uploadedVideosEl = byId("uploaded-videos");
+const refreshVideosBtn = byId("refresh-videos");
 
 const videoTabBtns = document.querySelectorAll(".video-tab-btn");
 const videoTabContents = document.querySelectorAll(".video-tab-content");
@@ -63,6 +65,7 @@ const saveSettingsBtn = byId("save-settings");
 const saveVoiceSettingsBtn = byId("save-voice-settings");
 const voicesListEl = byId("voices-list");
 const savePresetBtn = byId("save-preset");
+const deletePresetBtn = byId("delete-preset");
 
 let availableVoices = [];
 let savedPresets = [];
@@ -74,26 +77,40 @@ function setStatus(text, type = "info") {
 	statusEl.className = type ? `status-message ${type}` : "status-message";
 }
 
+function valueOrEmpty(el) {
+	return el && typeof el.value !== "undefined" ? el.value : "";
+}
+
+function trimmedValue(el) {
+	return valueOrEmpty(el).trim();
+}
+
+function setInputValue(el, value) {
+	if (el && typeof el.value !== "undefined") {
+		el.value = value;
+	}
+}
+
 function setupPresetSelection() {
 	presetSelect.addEventListener("change", () => {
 		const presetIdx = parseInt(presetSelect.value, 10);
 		if (presetSelect.value === "" || isNaN(presetIdx)) {
 			presetSettings.style.display = "block";
 			clearPresetForm();
+			if (deletePresetBtn) deletePresetBtn.disabled = true;
 		} else {
 			const preset = savedPresets[presetIdx];
 			loadPresetIntoForm(preset);
-			presetSettings.style.display = "none";
+			// Keep settings visible so preset actions (save/delete) remain accessible.
+			presetSettings.style.display = "block";
+			if (deletePresetBtn) deletePresetBtn.disabled = false;
 		}
 	});
 }
 
 function setupPresetSettings() {
-	// Expand settings when no preset is selected or create new is clicked
-	const currentValue = presetSelect.value;
-	if (currentValue === "") {
-		presetSettings.style.display = "block";
-	}
+	// Keep preset settings open by default for both new and selected presets.
+	presetSettings.style.display = "block";
 }
 
 function setupScriptMode() {
@@ -110,6 +127,7 @@ function setupScriptMode() {
 		scriptModeAiBtn.classList.remove("active");
 		aiScriptSection.style.display = "none";
 		manualScriptSection.style.display = "block";
+		manualScriptEl?.focus();
 	});
 }
 
@@ -319,18 +337,18 @@ async function previewVoice(voiceKey) {
 
 // Preset functions
 function clearPresetForm() {
-	topicEl.value = "";
-	promptEl.value = "";
-	languageEl.value = "";
-	voiceEl.value = "";
-	orientationEl.value = "portrait";
-	customWidthEl.value = "";
-	customHeightEl.value = "";
-	bgSelect.value = "";
-	scriptOverrideEl.value = "";
-	manualScriptEl.value = "";
-	generatedTitleEl.value = "";
-	generatedTagsEl.value = "";
+	setInputValue(topicEl, "");
+	setInputValue(promptEl, "");
+	setInputValue(languageEl, "");
+	setInputValue(voiceEl, "");
+	setInputValue(orientationEl, "portrait");
+	setInputValue(customWidthEl, "");
+	setInputValue(customHeightEl, "");
+	setInputValue(bgSelect, "");
+	setInputValue(scriptOverrideEl, "");
+	setInputValue(manualScriptEl, "");
+	setInputValue(generatedTitleEl, "");
+	setInputValue(generatedTagsEl, "");
 	scriptModeAiBtn.classList.add("active");
 	scriptModeManualBtn.classList.remove("active");
 	aiScriptSection.style.display = "block";
@@ -358,6 +376,51 @@ function renderPresetsList() {
 	savedPresets.forEach((preset, idx) => {
 		presetSelect.appendChild(new Option(preset.name, idx));
 	});
+	if (deletePresetBtn) {
+		deletePresetBtn.disabled = true;
+	}
+}
+
+async function deletePreset() {
+	const presetIdx = parseInt(presetSelect.value, 10);
+	if (presetSelect.value === "" || Number.isNaN(presetIdx)) {
+		setStatus("Select a preset to delete.", "error");
+		return;
+	}
+
+	if (!savedPresets[presetIdx]) {
+		setStatus("Selected preset no longer exists.", "error");
+		return;
+	}
+
+	const presetName = savedPresets[presetIdx].name || "this preset";
+	if (!confirm(`Delete preset \"${presetName}\"?`)) {
+		return;
+	}
+
+	savedPresets.splice(presetIdx, 1);
+
+	try {
+		const resp = await fetch("/api/settings", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ prompt_presets: savedPresets }),
+		});
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) {
+			throw new Error(data.error || "Failed to delete preset");
+		}
+		savedPresets = Array.isArray(data.prompt_presets)
+			? data.prompt_presets
+			: [];
+		renderPresetsList();
+		presetSelect.value = "";
+		presetSettings.style.display = "block";
+		clearPresetForm();
+		setStatus("Preset deleted.", "success");
+	} catch (e) {
+		setStatus(e.message, "error");
+	}
 }
 
 async function savePreset() {
@@ -366,17 +429,25 @@ async function savePreset() {
 	const name = presetName.trim();
 	if (!name) return;
 
+	if (!topicEl || !promptEl || !voiceEl || !languageEl || !orientationEl) {
+		setStatus(
+			"UI fields are not fully loaded. Please refresh and retry.",
+			"error",
+		);
+		return;
+	}
+
 	const preset = {
 		name,
-		topic: topicEl.value.trim(),
-		prompt: promptEl.value.trim(),
-		script_override: scriptOverrideEl.value.trim(),
-		voice: voiceEl.value,
-		language: languageEl.value,
-		orientation: orientationEl.value,
-		custom_width: Number(customWidthEl.value || 0),
-		custom_height: Number(customHeightEl.value || 0),
-		background_video: bgSelect.value,
+		topic: trimmedValue(topicEl),
+		prompt: trimmedValue(promptEl),
+		script_override: trimmedValue(scriptOverrideEl),
+		voice: valueOrEmpty(voiceEl),
+		language: valueOrEmpty(languageEl),
+		orientation: valueOrEmpty(orientationEl),
+		custom_width: Number(valueOrEmpty(customWidthEl) || 0),
+		custom_height: Number(valueOrEmpty(customHeightEl) || 0),
+		background_video: valueOrEmpty(bgSelect),
 	};
 
 	savedPresets = savedPresets.filter((p) => p.name !== name);
@@ -405,16 +476,16 @@ async function savePreset() {
 // Script and rendering
 function collectJobPayload() {
 	return {
-		topic: topicEl.value.trim(),
-		prompt: promptEl.value.trim(),
+		topic: trimmedValue(topicEl),
+		prompt: trimmedValue(promptEl),
 		script_override:
-			scriptOverrideEl.value.trim() || manualScriptEl.value.trim(),
-		voice: voiceEl.value.trim(),
-		language: languageEl.value.trim(),
-		orientation: orientationEl.value,
-		custom_width: Number(customWidthEl.value || 0),
-		custom_height: Number(customHeightEl.value || 0),
-		background_video: bgSelect.value,
+			trimmedValue(scriptOverrideEl) || trimmedValue(manualScriptEl),
+		voice: trimmedValue(voiceEl),
+		language: trimmedValue(languageEl),
+		orientation: valueOrEmpty(orientationEl),
+		custom_width: Number(valueOrEmpty(customWidthEl) || 0),
+		custom_height: Number(valueOrEmpty(customHeightEl) || 0),
+		background_video: valueOrEmpty(bgSelect),
 	};
 }
 
@@ -430,23 +501,52 @@ async function generateScriptDraft() {
 		const data = await resp.json().catch(() => ({}));
 		if (!resp.ok) throw new Error(data.error || "Script generation failed");
 
-		// Handle JSON response
+		// Handle JSON response - try multiple parsing paths
 		let title = "";
 		let tags = "";
 		let script = "";
 
-		if (typeof data.script === "string") {
+		// Path 1: Direct JSON response with title, script, tags fields
+		if (data.title && data.script) {
+			title = data.title || data.vid_title || "";
+			tags = Array.isArray(data.tags)
+				? data.tags.join(", ")
+				: Array.isArray(data.vid_tags)
+					? data.vid_tags.join(", ")
+					: typeof data.tags === "string"
+						? data.tags
+						: "";
+			script = data.script || "";
+		}
+		// Path 2: Script field contains JSON string
+		else if (typeof data.script === "string") {
 			try {
-				const parsed = JSON.parse(data.script);
-				title = parsed.vid_title || "";
-				tags = Array.isArray(parsed.vid_tags)
-					? parsed.vid_tags.join(", ")
-					: parsed.vid_tags || "";
+				// Clean markdown code blocks if present
+				let jsonStr = data.script.trim();
+				if (jsonStr.startsWith("```json")) {
+					jsonStr = jsonStr.replace(/^```json\n?/, "").replace(/\n?```$/, "");
+				} else if (jsonStr.startsWith("```")) {
+					jsonStr = jsonStr.replace(/^```\n?/, "").replace(/\n?```$/, "");
+				}
+
+				const parsed = JSON.parse(jsonStr);
+				title = parsed.title || parsed.vid_title || "";
+				tags = Array.isArray(parsed.tags)
+					? parsed.tags.join(", ")
+					: Array.isArray(parsed.vid_tags)
+						? parsed.vid_tags.join(", ")
+						: typeof parsed.tags === "string"
+							? parsed.tags
+							: "";
 				script = parsed.script || "";
 			} catch (e) {
 				// If not JSON, treat entire response as script
 				script = data.script;
 			}
+		}
+		// Path 3: Fallback
+		else {
+			script = JSON.stringify(data);
 		}
 
 		generatedTitleEl.value = title;
@@ -539,20 +639,51 @@ async function loadJobs() {
 // Videos
 async function loadVideos() {
 	try {
-		const resp = await fetch("/api/videos");
-		if (!resp.ok) throw new Error("Failed to load videos");
-		const videos = await resp.json();
+		const [uploadedResp, generatedResp] = await Promise.all([
+			fetch("/api/videos"),
+			fetch("/api/videos/generated"),
+		]);
+		if (!uploadedResp.ok) throw new Error("Failed to load uploaded videos");
+		if (!generatedResp.ok) throw new Error("Failed to load generated videos");
+
+		const [videos, generated] = await Promise.all([
+			uploadedResp.json(),
+			generatedResp.json(),
+		]);
+
 		bgSelect.innerHTML = '<option value="">Auto (Random)</option>';
 		if (Array.isArray(videos) && videos.length > 0) {
 			videos.forEach((v) => bgSelect.appendChild(new Option(v.name, v.name)));
 		}
-		renderVideosList(videos || []);
+		renderUploadedVideosList(videos || []);
+		renderGeneratedVideosList(generated || []);
 	} catch (e) {
 		setStatus(e.message, "error");
 	}
 }
 
-function renderVideosList(videos) {
+function renderGeneratedVideosList(videos) {
+	if (!videos || videos.length === 0) {
+		generatedVideosEl.innerHTML =
+			'<p class="empty-state">No generated videos yet</p>';
+		return;
+	}
+
+	generatedVideosEl.innerHTML = videos
+		.map(
+			(v) => `
+		<div class="video-item preview-only">
+			<div class="video-item-main">
+				<span class="video-item-name">${v.name}</span>
+				<video class="video-preview" controls preload="metadata" src="${v.url}"></video>
+			</div>
+		</div>
+	`,
+		)
+		.join("");
+}
+
+function renderUploadedVideosList(videos) {
 	if (!videos || videos.length === 0) {
 		uploadedVideosEl.innerHTML =
 			'<p class="empty-state">No uploaded videos</p>';
@@ -562,7 +693,10 @@ function renderVideosList(videos) {
 		.map(
 			(v) => `
 		<div class="video-item">
-			<span class="video-item-name">${v.name}</span>
+			<div class="video-item-main">
+				<span class="video-item-name">${v.name}</span>
+				<video class="video-preview" controls preload="metadata" src="${v.url}"></video>
+			</div>
 			<div class="video-item-actions">
 				<button class="video-action-btn rename" data-video="${v.name}">Rename</button>
 				<button class="video-action-btn download" data-video="${v.name}">Download</button>
@@ -771,6 +905,25 @@ function updateCustomSizeVisibility() {
 		orientationEl.value === "custom" ? "grid" : "none";
 }
 
+async function clearQueue() {
+	if (!confirm("Are you sure you want to clear all jobs from the queue?")) {
+		return;
+	}
+	setStatus("Clearing job queue...");
+	clearQueueBtn.disabled = true;
+	try {
+		const resp = await fetch("/v1/jobs", { method: "DELETE" });
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) throw new Error(data.error || "Failed to clear queue");
+		setStatus("Job queue cleared.", "success");
+		await loadJobs();
+	} catch (e) {
+		setStatus(e.message, "error");
+	} finally {
+		clearQueueBtn.disabled = false;
+	}
+}
+
 // Event listeners
 generateScriptBtn?.addEventListener("click", () => generateScriptDraft());
 renderJobBtn?.addEventListener("click", () => renderJobRequest());
@@ -780,6 +933,9 @@ saveVoiceSettingsBtn?.addEventListener("click", () => saveVoiceSettings());
 savePresetBtn?.addEventListener("click", () =>
 	savePreset().catch((e) => setStatus(e.message, "error")),
 );
+deletePresetBtn?.addEventListener("click", () =>
+	deletePreset().catch((e) => setStatus(e.message, "error")),
+);
 previewVoiceBtn?.addEventListener("click", () =>
 	previewVoice(defaultVoiceEl.value || voiceEl.value).catch((e) =>
 		setStatus(e.message, "error"),
@@ -787,8 +943,14 @@ previewVoiceBtn?.addEventListener("click", () =>
 );
 uploadVideoBtn?.addEventListener("click", () => uploadVideos());
 importYouTubeBtn?.addEventListener("click", () => importYouTubeVideo());
+refreshVideosBtn?.addEventListener("click", () =>
+	loadVideos().catch((e) => setStatus(e.message, "error")),
+);
 refreshBtn?.addEventListener("click", () =>
 	loadJobs().catch((e) => setStatus(e.message, "error")),
+);
+clearQueueBtn?.addEventListener("click", () =>
+	clearQueue().catch((e) => setStatus(e.message, "error")),
 );
 orientationEl?.addEventListener("change", updateCustomSizeVisibility);
 languageEl?.addEventListener("change", refreshVoiceDropdowns);

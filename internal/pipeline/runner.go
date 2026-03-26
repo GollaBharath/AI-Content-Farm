@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -117,14 +116,13 @@ func (r *Runner) CreateJob(req job.Request) (job.Job, error) {
 	return j, nil
 }
 
-func (r *Runner) GenerateScript(ctx context.Context, req job.Request) (string, error) {
+func (r *Runner) GenerateScript(ctx context.Context, req job.Request) (script.GeneratedContent, error) {
 	return r.script.Generate(ctx, req)
 }
 
 func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 	j, ok := r.store.Get(jobID)
 	if !ok {
-		log.Printf("worker %d: job not found: %s", workerID, jobID)
 		return
 	}
 
@@ -153,11 +151,13 @@ func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 
 	scriptText := strings.TrimSpace(j.Request.ScriptOverride)
 	if scriptText == "" {
-		scriptText, err = r.script.Generate(ctx, j.Request)
+		generated, genErr := r.script.Generate(ctx, j.Request)
+		err = genErr
 		if err != nil {
 			r.failJob(j, err)
 			return
 		}
+		scriptText = generated.Script
 	}
 	j.Script = scriptText
 	j.UpdatedAt = time.Now().UTC()

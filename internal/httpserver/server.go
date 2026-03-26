@@ -56,6 +56,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/scripts/generate", s.handleGenerateScript)
 	s.mux.HandleFunc("POST /v1/jobs", s.handleCreateJob)
 	s.mux.HandleFunc("GET /v1/jobs", s.handleListJobs)
+	s.mux.HandleFunc("DELETE /v1/jobs", s.handleClearJobs)
 	s.mux.HandleFunc("GET /v1/jobs/", s.handleGetJob)
 
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
@@ -63,6 +64,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/voices", s.handleListVoices)
 	s.mux.HandleFunc("POST /api/voices/preview", s.handlePreviewVoice)
 	s.mux.HandleFunc("GET /api/videos", s.handleListVideos)
+	s.mux.HandleFunc("GET /api/videos/generated", s.handleListGeneratedVideos)
 	s.mux.HandleFunc("POST /api/videos/import-youtube", s.handleImportYouTube)
 	s.mux.HandleFunc("POST /api/videos/upload", s.handleUploadVideos)
 }
@@ -78,19 +80,24 @@ func (s *Server) handleGenerateScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scriptText, err := s.runner.GenerateScript(r.Context(), req)
+	generated, err := s.runner.GenerateScript(r.Context(), req)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"script": scriptText})
+	writeJSON(w, http.StatusOK, generated)
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	var req job.Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	if strings.TrimSpace(req.Topic) == "" && strings.TrimSpace(req.Prompt) == "" && strings.TrimSpace(req.ScriptOverride) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing content: provide topic, prompt, or script_override"})
 		return
 	}
 
@@ -109,6 +116,14 @@ func (s *Server) handleListJobs(w http.ResponseWriter, _ *http.Request) {
 		jobs[i].OutputPath = s.publicOutputPath(jobs[i].OutputPath)
 	}
 	writeJSON(w, http.StatusOK, jobs)
+}
+
+func (s *Server) handleClearJobs(w http.ResponseWriter, _ *http.Request) {
+	if err := s.store.Clear(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
@@ -249,6 +264,39 @@ func (s *Server) handleListVideos(w http.ResponseWriter, _ *http.Request) {
 			videos = append(videos, map[string]string{
 				"name": entry.Name(),
 				"url":  "/inputs/" + entry.Name(),
+			})
+		}
+	}
+
+	sort.Slice(videos, func(i, j int) bool { return videos[i]["name"] < videos[j]["name"] })
+	writeJSON(w, http.StatusOK, videos)
+}
+
+func (s *Server) handleListGeneratedVideos(w http.ResponseWriter, _ *http.Request) {
+	cfg, err := s.settings.Get()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = os.MkdirAll(cfg.OutputVideosDir, 0o755)
+
+	entries, err := os.ReadDir(cfg.OutputVideosDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	videos := make([]map[string]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		switch ext {
+		case ".mp4", ".mov", ".mkv", ".webm":
+			videos = append(videos, map[string]string{
+				"name": entry.Name(),
+				"url":  "/outputs/" + entry.Name(),
 			})
 		}
 	}

@@ -84,7 +84,7 @@ func (b *FFmpegBuilder) Render(ctx context.Context, req RenderRequest) (string, 
 			)
 		} else {
 			args = append(args,
-				"-vf", fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=cover,crop=%d:%d", width, height, width, height),
+				"-vf", fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d", width, height, width, height),
 				"-map", "0:v:0",
 				"-map", "1:a:0",
 			)
