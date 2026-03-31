@@ -17,6 +17,7 @@ type Settings struct {
 	DefaultVideoOrientation string `json:"default_video_orientation"`
 	DefaultVideoWidth       int    `json:"default_video_width"`
 	DefaultVideoHeight      int    `json:"default_video_height"`
+	TTSProvider             string `json:"tts_provider"`
 	DefaultVoice            string `json:"default_voice"`
 	DefaultLanguage         string `json:"default_language"`
 	DefaultPromptIdea       string `json:"default_prompt_idea"`
@@ -42,6 +43,7 @@ type Update struct {
 	DefaultVideoOrientation *string `json:"default_video_orientation"`
 	DefaultVideoWidth       *int    `json:"default_video_width"`
 	DefaultVideoHeight      *int    `json:"default_video_height"`
+	TTSProvider             *string `json:"tts_provider"`
 	DefaultVoice            *string `json:"default_voice"`
 	DefaultLanguage         *string `json:"default_language"`
 	DefaultPromptIdea       *string `json:"default_prompt_idea"`
@@ -109,6 +111,8 @@ func (s *Store) Get() (Settings, error) {
 			cfg.DefaultVideoWidth = atoiOrZero(value)
 		case "default_video_height":
 			cfg.DefaultVideoHeight = atoiOrZero(value)
+		case "tts_provider":
+			cfg.TTSProvider = normalizeTTSProvider(value)
 		case "default_voice":
 			cfg.DefaultVoice = value
 		case "default_language":
@@ -127,6 +131,7 @@ func (s *Store) Get() (Settings, error) {
 	if strings.TrimSpace(cfg.OutputVideosDir) == "" {
 		cfg.OutputVideosDir = s.defaults.OutputVideosDir
 	}
+	cfg.TTSProvider = normalizeTTSProvider(cfg.TTSProvider)
 	return cfg, nil
 }
 
@@ -153,6 +158,9 @@ func (s *Store) Update(update Update) (Settings, error) {
 	}
 	if update.DefaultVideoHeight != nil {
 		cfg.DefaultVideoHeight = max(*update.DefaultVideoHeight, 0)
+	}
+	if update.TTSProvider != nil {
+		cfg.TTSProvider = normalizeTTSProvider(*update.TTSProvider)
 	}
 	if update.DefaultVoice != nil {
 		cfg.DefaultVoice = strings.TrimSpace(*update.DefaultVoice)
@@ -182,6 +190,7 @@ func (s *Store) Update(update Update) (Settings, error) {
 		"default_video_orientation": cfg.DefaultVideoOrientation,
 		"default_video_width":       strconv.Itoa(cfg.DefaultVideoWidth),
 		"default_video_height":      strconv.Itoa(cfg.DefaultVideoHeight),
+		"tts_provider":              cfg.TTSProvider,
 		"default_voice":             cfg.DefaultVoice,
 		"default_language":          cfg.DefaultLanguage,
 		"default_prompt_idea":       cfg.DefaultPromptIdea,
@@ -225,6 +234,8 @@ func (s *Store) getLocked() (Settings, error) {
 			cfg.DefaultVideoWidth = atoiOrZero(value)
 		case "default_video_height":
 			cfg.DefaultVideoHeight = atoiOrZero(value)
+		case "tts_provider":
+			cfg.TTSProvider = normalizeTTSProvider(value)
 		case "default_voice":
 			cfg.DefaultVoice = value
 		case "default_language":
@@ -243,6 +254,7 @@ func (s *Store) getLocked() (Settings, error) {
 	if strings.TrimSpace(cfg.OutputVideosDir) == "" {
 		cfg.OutputVideosDir = s.defaults.OutputVideosDir
 	}
+	cfg.TTSProvider = normalizeTTSProvider(cfg.TTSProvider)
 	return cfg, nil
 }
 
@@ -260,6 +272,17 @@ func normalizeOrientation(value string) string {
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "portrait"
+	}
+}
+
+func normalizeTTSProvider(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "elevenlabs":
+		return "elevenlabs"
+	case "auto":
+		return "auto"
+	default:
+		return "piper"
 	}
 }
 

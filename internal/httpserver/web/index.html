@@ -342,6 +342,17 @@
 							</div>
 
 							<div class="form-group">
+								<label for="tts-provider">TTS Provider</label>
+								<select id="tts-provider">
+									<option value="piper">Piper (Local)</option>
+									<option value="elevenlabs">ElevenLabs</option>
+									<option value="auto">
+										Auto (ElevenLabs then Piper fallback)
+									</option>
+								</select>
+							</div>
+
+							<div class="form-group">
 								<label for="default-language">Default Language</label>
 								<select id="default-language" class="voice-select">
 									<option value="">Auto</option>

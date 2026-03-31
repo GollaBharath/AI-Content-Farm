@@ -56,6 +56,7 @@ const advancedSettingsEl = byId("advanced-settings");
 const inputDirEl = byId("input-dir");
 const outputDirEl = byId("output-dir");
 const defaultOrientationEl = byId("default-orientation");
+const ttsProviderEl = byId("tts-provider");
 const defaultLanguageEl = byId("default-language");
 const defaultVoiceEl = byId("default-voice");
 const voicePreviewTextEl = byId("voice-preview-text");
@@ -194,7 +195,7 @@ async function loadVoices() {
 		const resp = await fetch("/api/voices");
 		if (!resp.ok) {
 			const data = await resp.json().catch(() => ({}));
-			throw new Error(data.error || "Failed to load Piper voices");
+			throw new Error(data.error || "Failed to load voices");
 		}
 		const data = await resp.json();
 		availableVoices = (data.voices || []).map(normalizeVoice);
@@ -836,6 +837,7 @@ async function loadSettings() {
 		inputDirEl.value = s.input_videos_dir || "";
 		outputDirEl.value = s.output_videos_dir || "";
 		defaultOrientationEl.value = s.default_video_orientation || "portrait";
+		ttsProviderEl.value = s.tts_provider || "piper";
 		defaultLanguageEl.value = s.default_language || "";
 		languageEl.value = s.default_language || "";
 		refreshVoiceDropdowns();
@@ -859,6 +861,7 @@ async function saveSettings() {
 			input_videos_dir: inputDirEl.value.trim(),
 			output_videos_dir: outputDirEl.value.trim(),
 			default_video_orientation: defaultOrientationEl.value,
+			tts_provider: ttsProviderEl.value,
 			default_voice: defaultVoiceEl.value.trim(),
 			default_language: defaultLanguageEl.value.trim(),
 		};
@@ -954,6 +957,9 @@ clearQueueBtn?.addEventListener("click", () =>
 );
 orientationEl?.addEventListener("change", updateCustomSizeVisibility);
 languageEl?.addEventListener("change", refreshVoiceDropdowns);
+ttsProviderEl?.addEventListener("change", () => {
+	loadVoices().catch((e) => setStatus(e.message, "error"));
+});
 defaultLanguageEl?.addEventListener("change", () => {
 	if (!languageEl.value) {
 		languageEl.value = defaultLanguageEl.value;
@@ -985,6 +991,7 @@ async function boot() {
 	setupCollapsible();
 	setupUploadArea();
 	try {
+		await loadSettings();
 		await loadVoices();
 		await loadSettings();
 		await Promise.all([loadVideos(), loadJobs()]);

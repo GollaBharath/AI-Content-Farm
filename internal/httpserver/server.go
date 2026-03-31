@@ -21,20 +21,28 @@ import (
 )
 
 type Server struct {
-	store    *storage.JobStore
-	settings *settings.Store
-	runner   *pipeline.Runner
-	tts      tts.Client
-	mux      *http.ServeMux
+	store             *storage.JobStore
+	settings          *settings.Store
+	runner            *pipeline.Runner
+	tts               tts.Client
+	onSettingsUpdated func(context.Context, settings.Settings, settings.Settings)
+	mux               *http.ServeMux
 }
 
-func New(store *storage.JobStore, settingsStore *settings.Store, runner *pipeline.Runner, ttsClient tts.Client) *Server {
+func New(
+	store *storage.JobStore,
+	settingsStore *settings.Store,
+	runner *pipeline.Runner,
+	ttsClient tts.Client,
+	onSettingsUpdated func(context.Context, settings.Settings, settings.Settings),
+) *Server {
 	s := &Server{
-		store:    store,
-		settings: settingsStore,
-		runner:   runner,
-		tts:      ttsClient,
-		mux:      http.NewServeMux(),
+		store:             store,
+		settings:          settingsStore,
+		runner:            runner,
+		tts:               ttsClient,
+		onSettingsUpdated: onSettingsUpdated,
+		mux:               http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -162,6 +170,12 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	before, err := s.settings.Get()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
 	var update settings.Update
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
@@ -172,6 +186,10 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+
+	if s.onSettingsUpdated != nil {
+		s.onSettingsUpdated(r.Context(), before, cfg)
 	}
 
 	_ = os.MkdirAll(cfg.InputVideosDir, 0o755)
@@ -233,7 +251,7 @@ func (s *Server) handlePreviewVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "audio/wav")
+	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(audio)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -44,6 +45,7 @@ func main() {
 		DefaultVideoOrientation: "portrait",
 		DefaultVideoWidth:       1080,
 		DefaultVideoHeight:      1920,
+		TTSProvider:             cfg.TTSProvider,
 		DefaultVoice:            "",
 		DefaultLanguage:         "",
 		DefaultPromptIdea:       "",
@@ -57,7 +59,59 @@ func main() {
 	if err != nil {
 		log.Fatalf("storage init error: %v", err)
 	}
-	ttsClient := tts.NewHTTPClient(cfg.TTSBaseURL, cfg.TTSSynthPath, time.Duration(cfg.TTSTimeoutSecs)*time.Second)
+	var composeManager *tts.ComposeManager
+	if cfg.TTSDockerAutoManage {
+		composeManager = tts.NewComposeManager(
+			tts.ResolveProjectDir(cfg.TTSDockerProjectDir),
+			cfg.TTSDockerServiceName,
+		)
+	}
+
+	syncTTSDocker := func(_ context.Context, provider string) {
+		if composeManager == nil {
+			return
+		}
+		syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := composeManager.SyncForProvider(syncCtx, provider); err != nil {
+			log.Printf("tts docker sync failed for provider %q: %v", provider, err)
+		}
+	}
+
+	providerFromSettings := func() string {
+		current, err := settingsStore.Get()
+		if err != nil {
+			return cfg.TTSProvider
+		}
+		return current.TTSProvider
+	}
+
+	syncTTSDocker(ctx, providerFromSettings())
+
+	piperClient := tts.NewHTTPClient(cfg.TTSBaseURL, cfg.TTSSynthPath, time.Duration(cfg.TTSTimeoutSecs)*time.Second)
+	elevenLabsClient := tts.NewElevenLabsClient(tts.ElevenLabsConfig{
+		APIKey:       cfg.ElevenLabsAPIKey,
+		BaseURL:      cfg.ElevenLabsBaseURL,
+		DefaultVoice: cfg.ElevenLabsVoiceID,
+		DefaultModel: cfg.ElevenLabsModelID,
+		OutputFormat: cfg.ElevenLabsOutputFmt,
+		Timeout:      time.Duration(cfg.TTSTimeoutSecs) * time.Second,
+	})
+	ttsClient := tts.NewProviderRouter(
+		piperClient,
+		elevenLabsClient,
+		func(context.Context) string {
+			return providerFromSettings()
+		},
+		func(ctx context.Context) {
+			provider := tts.ProviderPiper
+			if _, err := settingsStore.Update(settings.Update{TTSProvider: &provider}); err != nil {
+				log.Printf("auto fallback to piper failed to persist: %v", err)
+				return
+			}
+			syncTTSDocker(ctx, provider)
+		},
+	)
 	runner := pipeline.NewRunner(
 		store,
 		settingsStore,
@@ -79,7 +133,12 @@ func main() {
 		log.Printf("autopilot enabled: every %ds", cfg.AutoPilotEvery)
 	}
 
-	srv := httpserver.New(store, settingsStore, runner, ttsClient)
+	srv := httpserver.New(store, settingsStore, runner, ttsClient, func(ctx context.Context, before, after settings.Settings) {
+		if strings.EqualFold(before.TTSProvider, after.TTSProvider) {
+			return
+		}
+		syncTTSDocker(ctx, after.TTSProvider)
+	})
 	addr := ":" + cfg.Port
 	log.Printf("api listening on %s", addr)
 
