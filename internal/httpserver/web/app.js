@@ -5,8 +5,6 @@ const statusEl = byId("status");
 const jobsEl = byId("jobs");
 const refreshBtn = byId("refresh");
 const clearQueueBtn = byId("clear-queue");
-const collapseJobsBtn = byId("collapse-jobs");
-const collapseSettingsBtn = byId("collapse-settings");
 
 const presetSelect = byId("preset-select");
 const presetSettings = byId("preset-settings");
@@ -48,10 +46,8 @@ const generatedVideosEl = byId("generated-videos");
 const uploadedVideosEl = byId("uploaded-videos");
 const refreshVideosBtn = byId("refresh-videos");
 
-const videoTabBtns = document.querySelectorAll(".video-tab-btn");
-const videoTabContents = document.querySelectorAll(".video-tab-content");
-
-const advancedSettingsEl = byId("advanced-settings");
+const mainTabBtns = document.querySelectorAll(".main-tab-btn");
+const mainTabContents = document.querySelectorAll(".main-tab-content");
 
 const inputDirEl = byId("input-dir");
 const outputDirEl = byId("output-dir");
@@ -128,35 +124,31 @@ function setupScriptMode() {
 		scriptModeAiBtn.classList.remove("active");
 		aiScriptSection.style.display = "none";
 		manualScriptSection.style.display = "block";
+		renderJobBtn.style.display = "none";
+		renderJobManualBtn.style.display = "block";
 		manualScriptEl?.focus();
 	});
 }
 
-function setupVideoTabs() {
-	videoTabBtns.forEach((btn) => {
+function setupMainTabs() {
+	mainTabBtns.forEach((btn) => {
 		btn.addEventListener("click", () => {
-			const tabName = btn.getAttribute("data-video-tab");
-			videoTabBtns.forEach((b) => b.classList.remove("active"));
+			const tabName = btn.getAttribute("data-tab");
+			mainTabBtns.forEach((b) => b.classList.remove("active"));
 			btn.classList.add("active");
-			videoTabContents.forEach((content) => content.classList.remove("active"));
-			byId(`video-tab-${tabName}`).classList.add("active");
+			mainTabContents.forEach((content) => content.classList.remove("active"));
+			const targetTab = byId(`tab-${tabName}`);
+			if (targetTab) {
+				targetTab.classList.add("active");
+				// Optionally load tab-specific data on first click
+				if (tabName === "jobs") loadJobs().catch(() => {});
+				if (tabName === "videos" || tabName === "assets") loadVideos().catch(() => {});
+			}
 		});
 	});
 }
 
-function setupCollapsible() {
-	collapseJobsBtn.addEventListener("click", () => {
-		jobsEl.style.display = jobsEl.style.display === "none" ? "grid" : "none";
-		collapseJobsBtn.textContent = jobsEl.style.display === "none" ? "+" : "−";
-	});
 
-	collapseSettingsBtn.addEventListener("click", () => {
-		advancedSettingsEl.style.display =
-			advancedSettingsEl.style.display === "none" ? "block" : "none";
-		collapseSettingsBtn.textContent =
-			advancedSettingsEl.style.display === "none" ? "+" : "−";
-	});
-}
 
 function setupUploadArea() {
 	uploadAreaEl.addEventListener("click", () => uploadInput.click());
@@ -355,6 +347,8 @@ function clearPresetForm() {
 	aiScriptSection.style.display = "block";
 	manualScriptSection.style.display = "none";
 	generatedScriptView.style.display = "none";
+	renderJobBtn.style.display = "block";
+	renderJobManualBtn.style.display = "none";
 }
 
 function loadPresetIntoForm(preset) {
@@ -987,8 +981,7 @@ async function boot() {
 	setupPresetSelection();
 	setupPresetSettings();
 	setupScriptMode();
-	setupVideoTabs();
-	setupCollapsible();
+	setupMainTabs();
 	setupUploadArea();
 	try {
 		await loadSettings();
