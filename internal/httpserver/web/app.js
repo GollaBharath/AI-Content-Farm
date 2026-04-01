@@ -461,6 +461,7 @@ async function deletePreset() {
 
 	try {
 		const resp = await fetch("/api/settings", {
+			cache: "no-store",
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ prompt_presets: savedPresets }),
@@ -514,6 +515,7 @@ async function savePreset() {
 
 	try {
 		const resp = await fetch("/api/settings", {
+			cache: "no-store",
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ prompt_presets: savedPresets }),
@@ -1221,7 +1223,7 @@ async function importYouTubeVideo() {
 // Settings
 async function loadSettings() {
 	try {
-		const resp = await fetch("/api/settings");
+		const resp = await fetch("/api/settings", { cache: "no-store" });
 		if (!resp.ok) throw new Error("Failed to load settings");
 		const s = await resp.json();
 

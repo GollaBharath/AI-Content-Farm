@@ -55,9 +55,9 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	webRoot, _ := fs.Sub(uiFS, "web")
-	s.mux.Handle("GET /app.js", http.FileServerFS(webRoot))
-	s.mux.Handle("GET /styles.css", http.FileServerFS(webRoot))
-	s.mux.Handle("GET /", http.FileServerFS(webRoot))
+	s.mux.Handle("GET /app.js", noCache(http.FileServerFS(webRoot)))
+	s.mux.Handle("GET /styles.css", noCache(http.FileServerFS(webRoot)))
+	s.mux.Handle("GET /", noCache(http.FileServerFS(webRoot)))
 	s.mux.HandleFunc("GET /outputs/", s.handleOutputFile)
 	s.mux.HandleFunc("GET /inputs/", s.handleInputFile)
 
@@ -213,6 +213,7 @@ func (s *Server) publicOutputPath(raw string) string {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
+	setNoCacheHeaders(w)
 	cfg, err := s.settings.Get()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -222,6 +223,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	setNoCacheHeaders(w)
 	before, err := s.settings.Get()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -247,6 +249,19 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	_ = os.MkdirAll(cfg.InputVideosDir, 0o755)
 	_ = os.MkdirAll(cfg.OutputVideosDir, 0o755)
 	writeJSON(w, http.StatusOK, cfg)
+}
+
+func noCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setNoCacheHeaders(w)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func setNoCacheHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 }
 
 func (s *Server) handleListVoices(w http.ResponseWriter, r *http.Request) {
