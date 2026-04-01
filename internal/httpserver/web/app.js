@@ -110,6 +110,10 @@ function setInputValue(el, value) {
 	}
 }
 
+function settingsURL() {
+	return `/api/settings?t=${Date.now()}`;
+}
+
 function encodePathSegments(pathValue) {
 	return String(pathValue || "")
 		.split("/")
@@ -144,6 +148,10 @@ function setupPresetSelection() {
 			if (deletePresetBtn) deletePresetBtn.disabled = true;
 		} else {
 			const preset = savedPresets[presetIdx];
+			if (!preset) {
+				setStatus("Preset not found. Please refresh presets.", "error");
+				return;
+			}
 			loadPresetIntoForm(preset);
 			// Keep settings visible so preset actions (save/delete) remain accessible.
 			presetSettings.style.display = "block";
@@ -417,7 +425,7 @@ function clearPresetForm() {
 }
 
 function loadPresetIntoForm(preset) {
-	topicEl.value = preset.topic || preset.prompt || "";
+	setInputValue(topicEl, preset.topic || preset.prompt || "");
 	languageEl.value = preset.language || "";
 	refreshVoiceDropdowns();
 	voiceEl.value = preset.voice || "";
@@ -425,6 +433,21 @@ function loadPresetIntoForm(preset) {
 	customWidthEl.value = preset.custom_width || "";
 	customHeightEl.value = preset.custom_height || "";
 	bgSelect.value = preset.background_video || "";
+
+	const presetScript = String(preset.script_override || "").trim();
+	setInputValue(scriptOverrideEl, presetScript);
+	setInputValue(manualScriptEl, presetScript);
+	generatedScripts = {};
+	if (presetScript) {
+		generatedScripts.english = presetScript;
+		populateGeneratedScriptEditors();
+		generatedScriptView.style.display = "block";
+	} else {
+		setInputValue(scriptHindiEl, "");
+		setInputValue(scriptTeluguEl, "");
+		generatedScriptView.style.display = "none";
+	}
+
 	updateCustomSizeVisibility();
 	setStatus(`Preset "${preset.name}" loaded.`, "success");
 }
@@ -460,7 +483,7 @@ async function deletePreset() {
 	savedPresets.splice(presetIdx, 1);
 
 	try {
-		const resp = await fetch("/api/settings", {
+		const resp = await fetch(settingsURL(), {
 			cache: "no-store",
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
@@ -514,7 +537,7 @@ async function savePreset() {
 	savedPresets.unshift(preset);
 
 	try {
-		const resp = await fetch("/api/settings", {
+		const resp = await fetch(settingsURL(), {
 			cache: "no-store",
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
@@ -528,6 +551,11 @@ async function savePreset() {
 			? data.prompt_presets
 			: [];
 		renderPresetsList();
+		if (savedPresets.length > 0) {
+			presetSelect.value = "0";
+			loadPresetIntoForm(savedPresets[0]);
+			if (deletePresetBtn) deletePresetBtn.disabled = false;
+		}
 		setStatus("Preset saved.", "success");
 	} catch (e) {
 		setStatus(e.message, "error");
@@ -1223,7 +1251,7 @@ async function importYouTubeVideo() {
 // Settings
 async function loadSettings() {
 	try {
-		const resp = await fetch("/api/settings", { cache: "no-store" });
+		const resp = await fetch(settingsURL(), { cache: "no-store" });
 		if (!resp.ok) throw new Error("Failed to load settings");
 		const s = await resp.json();
 
@@ -1266,7 +1294,7 @@ async function saveSettings() {
 			default_voice: defaultVoiceEl.value.trim(),
 			default_language: defaultLanguageEl.value.trim(),
 		};
-		const resp = await fetch("/api/settings", {
+		const resp = await fetch(settingsURL(), {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(payload),
@@ -1287,7 +1315,7 @@ async function savePiperEnabled() {
 	const enabled = Boolean(piperToggleEl.checked);
 	setStatus(enabled ? "Enabling Piper..." : "Disabling Piper...");
 	try {
-		const resp = await fetch("/api/settings", {
+		const resp = await fetch(settingsURL(), {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ piper_enabled: enabled }),
@@ -1322,7 +1350,7 @@ async function saveTTSProviderSelection() {
 	}
 	setStatus(`Switching TTS provider to ${provider}...`);
 	try {
-		const resp = await fetch("/api/settings", {
+		const resp = await fetch(settingsURL(), {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(payload),
@@ -1355,7 +1383,7 @@ async function saveVoiceSettings() {
 			default_voice: defaultVoiceEl.value.trim(),
 			default_language: defaultLanguageEl.value.trim(),
 		};
-		const resp = await fetch("/api/settings", {
+		const resp = await fetch(settingsURL(), {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(payload),
