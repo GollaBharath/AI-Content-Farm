@@ -89,6 +89,10 @@ func (s *Server) handleGenerateScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.TrimSpace(req.Topic) == "" {
+		req.Topic = strings.TrimSpace(req.Prompt)
+	}
+
 	generated, err := s.runner.GenerateScript(r.Context(), req)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
@@ -105,8 +109,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.Prompt) == "" && strings.TrimSpace(req.ScriptOverride) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing content: provide prompt or script_override"})
+	if strings.TrimSpace(req.Topic) == "" {
+		req.Topic = strings.TrimSpace(req.Prompt)
+	}
+
+	if strings.TrimSpace(req.Topic) == "" && strings.TrimSpace(req.ScriptOverride) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing content: provide topic or script_override"})
 		return
 	}
 

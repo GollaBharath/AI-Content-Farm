@@ -52,6 +52,22 @@ func (r *ProviderRouter) currentProvider(ctx context.Context) string {
 }
 
 func (r *ProviderRouter) Synthesize(ctx context.Context, text, voice, language, outDir string) (string, error) {
+	if isTeluguLanguage(language) {
+		return r.piper.Synthesize(ctx, text, voice, language, outDir)
+	}
+
+	if shouldPreferAPI(language) && r.elevenLabs != nil {
+		path, err := r.elevenLabs.Synthesize(ctx, text, voice, language, outDir)
+		if err == nil {
+			return path, nil
+		}
+		fallbackPath, fallbackErr := r.piper.Synthesize(ctx, text, voice, language, outDir)
+		if fallbackErr == nil {
+			return fallbackPath, nil
+		}
+		return "", fmt.Errorf("api tts failed (%v), fallback tts also failed: %w", err, fallbackErr)
+	}
+
 	switch r.currentProvider(ctx) {
 	case ProviderPiper:
 		return r.piper.Synthesize(ctx, text, voice, language, outDir)
@@ -73,13 +89,24 @@ func (r *ProviderRouter) Synthesize(ctx context.Context, text, voice, language, 
 			}
 			return "", fmt.Errorf("elevenlabs credits exhausted (%v), fallback tts also failed: %w", err, fallbackErr)
 		}
-		if r.currentProvider(ctx) == ProviderAuto {
-			return r.piper.Synthesize(ctx, text, voice, language, outDir)
+		fallbackPath, fallbackErr := r.piper.Synthesize(ctx, text, voice, language, outDir)
+		if fallbackErr == nil {
+			return fallbackPath, nil
 		}
-		return "", err
+		return "", fmt.Errorf("elevenlabs failed (%v), fallback tts also failed: %w", err, fallbackErr)
 	default:
 		return r.piper.Synthesize(ctx, text, voice, language, outDir)
 	}
+}
+
+func shouldPreferAPI(language string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(language))
+	return normalized == "en" || strings.HasPrefix(normalized, "en-") || normalized == "hi" || strings.HasPrefix(normalized, "hi-")
+}
+
+func isTeluguLanguage(language string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(language))
+	return normalized == "te" || strings.HasPrefix(normalized, "te-") || normalized == "telugu"
 }
 
 func (r *ProviderRouter) ListVoices(ctx context.Context) ([]Voice, error) {

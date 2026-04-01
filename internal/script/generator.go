@@ -19,17 +19,18 @@ type Generator interface {
 }
 
 type GeneratedContent struct {
-	Title  string   `json:"title,omitempty"`
-	Script string   `json:"script"`
-	Tags   []string `json:"tags,omitempty"`
+	Title   string            `json:"title,omitempty"`
+	Script  string            `json:"script"`
+	Scripts map[string]string `json:"scripts,omitempty"`
+	Tags    []string          `json:"tags,omitempty"`
 }
 
 // GeminiOpenRouterGenerator uses Gemini as primary and OpenRouter as fallback
 type GeminiOpenRouterGenerator struct {
-	geminiAPIKey      string
-	openRouterAPIKey  string
-	openRouterModel   string
-	http              *http.Client
+	geminiAPIKey     string
+	openRouterAPIKey string
+	openRouterModel  string
+	http             *http.Client
 }
 
 func NewGeminiOpenRouterGenerator(geminiAPIKey, openRouterAPIKey, openRouterModel string, timeout time.Duration) *GeminiOpenRouterGenerator {
@@ -113,12 +114,12 @@ func (g *GeminiOpenRouterGenerator) Generate(ctx context.Context, req job.Reques
 }
 
 func (g *GeminiOpenRouterGenerator) callGemini(ctx context.Context, req job.Request) (GeneratedContent, error) {
-	prompt := strings.TrimSpace(req.Prompt)
-	if prompt == "" {
-		prompt = "Write a clean, engaging faceless short video script."
+	topic := resolveTopic(req)
+	if topic == "" {
+		topic = "Write a clean, engaging faceless short video script."
 	}
 
-	userPrompt := prompt
+	userPrompt := buildMultilingualPrompt(topic)
 
 	payload := geminiRequest{
 		Contents: []struct {
@@ -180,13 +181,13 @@ func (g *GeminiOpenRouterGenerator) callGemini(ctx context.Context, req job.Requ
 }
 
 func (g *GeminiOpenRouterGenerator) callOpenRouter(ctx context.Context, req job.Request) (GeneratedContent, error) {
-	prompt := strings.TrimSpace(req.Prompt)
-	if prompt == "" {
-		prompt = "Write a clean, engaging faceless short video script."
+	topic := resolveTopic(req)
+	if topic == "" {
+		topic = "Write a clean, engaging faceless short video script."
 	}
 
-	systemMsg := "You write concise scripts for faceless short videos. Output as JSON with 'script' field containing the script."
-	userMsg := prompt
+	systemMsg := "You write concise scripts for faceless short videos. Output strict JSON only with keys: title, tags, english, hindi, telugu. Do not output markdown."
+	userMsg := buildMultilingualPrompt(topic)
 
 	payload := openRouterRequest{
 		Model: g.openRouterModel,
@@ -258,7 +259,10 @@ func normalizeGeneratedContent(raw string) (GeneratedContent, error) {
 	if cleaned == "" {
 		return GeneratedContent{}, fmt.Errorf("empty script")
 	}
-	return GeneratedContent{Script: cleaned}, nil
+	return GeneratedContent{
+		Script:  cleaned,
+		Scripts: map[string]string{"english": cleaned},
+	}, nil
 }
 
 func stripMarkdownFence(s string) string {
@@ -300,12 +304,32 @@ func extractContentFromJSON(s string) GeneratedContent {
 		return content
 	}
 
-	script := findValueByKey(payload, []string{"script", "content", "text", "narration", "voiceover", "output"})
+	english := findValueByKey(payload, []string{"english"})
+	hindi := findValueByKey(payload, []string{"hindi"})
+	telugu := findValueByKey(payload, []string{"telugu"})
+
+	script := english
 	if script == "" {
-		script = extractStringFieldHeuristic(s, []string{"script", "content", "text", "narration", "voiceover", "output"})
+		script = findValueByKey(payload, []string{"script", "content", "text", "narration", "voiceover", "output"})
+	}
+	if script == "" {
+		script = extractStringFieldHeuristic(s, []string{"english", "script", "content", "text", "narration", "voiceover", "output"})
 	}
 	if script == "" {
 		return GeneratedContent{}
+	}
+
+	if english == "" {
+		english = extractStringFieldHeuristic(s, []string{"english"})
+	}
+	if english == "" {
+		english = script
+	}
+	if hindi == "" {
+		hindi = extractStringFieldHeuristic(s, []string{"hindi"})
+	}
+	if telugu == "" {
+		telugu = extractStringFieldHeuristic(s, []string{"telugu"})
 	}
 
 	title := findValueByKey(payload, []string{"title", "vid_title"})
@@ -321,8 +345,56 @@ func extractContentFromJSON(s string) GeneratedContent {
 	return GeneratedContent{
 		Title:  strings.TrimSpace(title),
 		Script: strings.TrimSpace(script),
-		Tags:   tags,
+		Scripts: compactScripts(map[string]string{
+			"english": english,
+			"hindi":   hindi,
+			"telugu":  telugu,
+		}),
+		Tags: tags,
 	}
+}
+
+func resolveTopic(req job.Request) string {
+	topic := strings.TrimSpace(req.Topic)
+	if topic != "" {
+		return topic
+	}
+	return strings.TrimSpace(req.Prompt)
+}
+
+func buildMultilingualPrompt(topic string) string {
+	return fmt.Sprintf(`Topic: %s
+
+Return strict JSON only with this shape:
+{
+  "title": "...",
+  "tags": ["tag1", "tag2", "tag3"],
+  "english": "A concise short-video narration in English.",
+  "hindi": "A natural Hindi narration with the same meaning.",
+  "telugu": "A natural Telugu narration with the same meaning."
+}
+
+Rules:
+- No markdown, no code fences, no extra keys.
+- Keep each narration short, punchy, and suitable for faceless short videos.
+- Ensure all 3 narrations communicate the same core message.
+- Make sure each narration is atleast 140 words or so, make sure that we get atleast 1 minute in piper tts.
+`, topic)
+}
+
+func compactScripts(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			continue
+		}
+		out[k] = trimmed
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func extractStringFieldHeuristic(s string, keys []string) string {
@@ -618,11 +690,12 @@ func dedupeTags(tags []string) []string {
 }
 
 func fallbackContent(req job.Request) GeneratedContent {
-	script := strings.TrimSpace(req.Prompt)
+	script := resolveTopic(req)
 	if script == "" {
 		script = "Hook: You won't believe this. Today we break down something surprising in under a minute. First, the part nobody tells you. Second, the trick that changes everything. Third, the move you can use right now. Follow for the next one."
 	}
 	return GeneratedContent{
-		Script: script,
+		Script:  script,
+		Scripts: map[string]string{"english": script},
 	}
 }

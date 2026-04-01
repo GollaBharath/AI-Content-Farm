@@ -22,6 +22,7 @@ func Start(ctx context.Context, runner *pipeline.Runner, cfg Config) {
 
 	enqueue := func() {
 		req := job.Request{
+			Topic:  cfg.Prompt,
 			Prompt: cfg.Prompt,
 			Voice:  cfg.Voice,
 		}

@@ -12,14 +12,16 @@ const (
 )
 
 type Request struct {
-	Prompt          string `json:"prompt"`
-	ScriptOverride  string `json:"script_override"`
-	Voice           string `json:"voice"`
-	Language        string `json:"language"`
-	Orientation     string `json:"orientation"`
-	CustomWidth     int    `json:"custom_width"`
-	CustomHeight    int    `json:"custom_height"`
-	BackgroundVideo string `json:"background_video"`
+	Topic           string            `json:"topic"`
+	Prompt          string            `json:"prompt"`
+	ScriptOverride  string            `json:"script_override"`
+	Scripts         map[string]string `json:"scripts,omitempty"`
+	Voice           string            `json:"voice"`
+	Language        string            `json:"language"`
+	Orientation     string            `json:"orientation"`
+	CustomWidth     int               `json:"custom_width"`
+	CustomHeight    int               `json:"custom_height"`
+	BackgroundVideo string            `json:"background_video"`
 }
 
 type Job struct {

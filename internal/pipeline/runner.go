@@ -142,6 +142,7 @@ func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 	}
 
 	scriptText := strings.TrimSpace(j.Request.ScriptOverride)
+	scriptsByLang := map[string]string{}
 	if scriptText == "" {
 		generated, genErr := r.script.Generate(ctx, j.Request)
 		err = genErr
@@ -149,7 +150,35 @@ func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 			r.failJob(j, err)
 			return
 		}
-		scriptText = generated.Script
+		scriptText = strings.TrimSpace(generated.Script)
+		for k, v := range generated.Scripts {
+			key := strings.ToLower(strings.TrimSpace(k))
+			value := strings.TrimSpace(v)
+			if key == "" || value == "" {
+				continue
+			}
+			scriptsByLang[key] = value
+		}
+	} else {
+		scriptsByLang["english"] = scriptText
+	}
+	for k, v := range j.Request.Scripts {
+		key := strings.ToLower(strings.TrimSpace(k))
+		value := strings.TrimSpace(v)
+		if key == "" || value == "" {
+			continue
+		}
+		scriptsByLang[key] = value
+	}
+	if scriptText == "" {
+		scriptText = strings.TrimSpace(scriptsByLang["english"])
+	}
+	if scriptText == "" {
+		scriptText = resolveFirstScript(scriptsByLang)
+	}
+	if scriptText == "" {
+		r.failJob(j, fmt.Errorf("generated script was empty"))
+		return
 	}
 	j.Script = scriptText
 	j.UpdatedAt = time.Now().UTC()
@@ -159,32 +188,6 @@ func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 	if voice == "" {
 		voice = strings.TrimSpace(cfg.DefaultVoice)
 	}
-	language := strings.TrimSpace(j.Request.Language)
-	if language == "" {
-		language = strings.TrimSpace(cfg.DefaultLanguage)
-	}
-
-	voiceoverPath, err := r.tts.Synthesize(ctx, scriptText, voice, language, cfg.OutputVideosDir)
-	if err != nil {
-		for attempt := 1; attempt <= 2; attempt++ {
-			select {
-			case <-ctx.Done():
-				r.failJob(j, ctx.Err())
-				return
-			case <-time.After(3 * time.Second):
-			}
-
-			voiceoverPath, err = r.tts.Synthesize(ctx, scriptText, voice, language, cfg.OutputVideosDir)
-			if err == nil {
-				break
-			}
-		}
-	}
-	if err != nil {
-		r.failJob(j, err)
-		return
-	}
-
 	orientation := strings.TrimSpace(j.Request.Orientation)
 	if orientation == "" {
 		orientation = cfg.DefaultVideoOrientation
@@ -198,26 +201,103 @@ func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 		customHeight = cfg.DefaultVideoHeight
 	}
 
-	slug := sanitize(j.Request.Prompt)
-	videoPath, err := r.video.Render(ctx, video.RenderRequest{
-		AudioPath:       voiceoverPath,
-		Topic:           slug,
-		OutputDir:       cfg.OutputVideosDir,
-		InputVideosDir:  cfg.InputVideosDir,
-		BackgroundVideo: j.Request.BackgroundVideo,
-		Orientation:     orientation,
-		CustomWidth:     customWidth,
-		CustomHeight:    customHeight,
-	})
-	if err != nil {
-		r.failJob(j, err)
-		return
+	topic := strings.TrimSpace(j.Request.Topic)
+	if topic == "" {
+		topic = strings.TrimSpace(j.Request.Prompt)
+	}
+
+	variants := []struct {
+		name     string
+		langCode string
+	}{
+		{name: "english", langCode: "en"},
+		{name: "hindi", langCode: "hi"},
+		{name: "telugu", langCode: "te"},
+	}
+
+	var firstVideoPath string
+	for _, variant := range variants {
+		variantScript := pickScriptForVariant(scriptsByLang, variant.name, scriptText)
+		voiceoverPath, synthErr := r.synthesizeWithRetry(ctx, variantScript, voice, variant.langCode, cfg.OutputVideosDir)
+		if synthErr != nil {
+			r.failJob(j, synthErr)
+			return
+		}
+
+		slug := sanitize(fmt.Sprintf("%s-%s", topic, variant.name))
+		videoPath, renderErr := r.video.Render(ctx, video.RenderRequest{
+			AudioPath:       voiceoverPath,
+			Topic:           slug,
+			OutputDir:       cfg.OutputVideosDir,
+			InputVideosDir:  cfg.InputVideosDir,
+			BackgroundVideo: j.Request.BackgroundVideo,
+			Orientation:     orientation,
+			CustomWidth:     customWidth,
+			CustomHeight:    customHeight,
+		})
+		if renderErr != nil {
+			r.failJob(j, renderErr)
+			return
+		}
+
+		if firstVideoPath == "" {
+			firstVideoPath = videoPath
+		}
 	}
 
 	j.Status = job.StatusCompleted
-	j.OutputPath = videoPath
+	j.OutputPath = firstVideoPath
 	j.UpdatedAt = time.Now().UTC()
 	r.store.Save(j)
+}
+
+func pickScriptForVariant(scripts map[string]string, variant string, fallback string) string {
+	key := strings.ToLower(strings.TrimSpace(variant))
+	if key != "" {
+		if value := strings.TrimSpace(scripts[key]); value != "" {
+			return value
+		}
+	}
+	if value := strings.TrimSpace(scripts["english"]); value != "" {
+		return value
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func resolveFirstScript(scripts map[string]string) string {
+	for _, key := range []string{"english", "hindi", "telugu"} {
+		if value := strings.TrimSpace(scripts[key]); value != "" {
+			return value
+		}
+	}
+	for _, value := range scripts {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func (r *Runner) synthesizeWithRetry(ctx context.Context, text, voice, language, outputDir string) (string, error) {
+	voiceoverPath, err := r.tts.Synthesize(ctx, text, voice, language, outputDir)
+	if err == nil {
+		return voiceoverPath, nil
+	}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+
+		voiceoverPath, err = r.tts.Synthesize(ctx, text, voice, language, outputDir)
+		if err == nil {
+			return voiceoverPath, nil
+		}
+	}
+
+	return "", err
 }
 
 func (r *Runner) failJob(j job.Job, err error) {

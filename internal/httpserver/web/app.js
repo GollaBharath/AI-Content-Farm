@@ -21,11 +21,13 @@ const copyTitleBtn = byId("copy-title");
 const copyTagsBtn = byId("copy-tags");
 
 const scriptOverrideEl = byId("script-override");
+const scriptHindiEl = byId("script-hindi");
+const scriptTeluguEl = byId("script-telugu");
 const manualScriptEl = byId("manual-script");
 const renderJobBtn = byId("render-job");
 const renderJobManualBtn = byId("render-job-manual");
 
-const promptEl = byId("prompt");
+const topicEl = byId("topic");
 
 const languageEl = byId("language");
 const voiceEl = byId("voice");
@@ -68,6 +70,7 @@ const deletePresetBtn = byId("delete-preset");
 let availableVoices = [];
 let savedPresets = [];
 let previewObjectURL = "";
+let generatedScripts = {};
 
 function selectedProvider() {
 	const provider = (ttsProviderEl?.value || "").trim().toLowerCase();
@@ -100,6 +103,23 @@ function setInputValue(el, value) {
 	if (el && typeof el.value !== "undefined") {
 		el.value = value;
 	}
+}
+
+function syncGeneratedScriptsFromEditors() {
+	const english = trimmedValue(scriptOverrideEl);
+	const hindi = trimmedValue(scriptHindiEl);
+	const telugu = trimmedValue(scriptTeluguEl);
+
+	generatedScripts = {};
+	if (english) generatedScripts.english = english;
+	if (hindi) generatedScripts.hindi = hindi;
+	if (telugu) generatedScripts.telugu = telugu;
+}
+
+function populateGeneratedScriptEditors() {
+	setInputValue(scriptOverrideEl, generatedScripts.english || "");
+	setInputValue(scriptHindiEl, generatedScripts.hindi || "");
+	setInputValue(scriptTeluguEl, generatedScripts.telugu || "");
 }
 
 function setupPresetSelection() {
@@ -360,7 +380,7 @@ async function previewVoice(voiceKey) {
 
 // Preset functions
 function clearPresetForm() {
-	setInputValue(promptEl, "");
+	setInputValue(topicEl, "");
 	setInputValue(languageEl, "");
 	setInputValue(voiceEl, "");
 	setInputValue(orientationEl, "portrait");
@@ -368,9 +388,12 @@ function clearPresetForm() {
 	setInputValue(customHeightEl, "");
 	setInputValue(bgSelect, "");
 	setInputValue(scriptOverrideEl, "");
+	setInputValue(scriptHindiEl, "");
+	setInputValue(scriptTeluguEl, "");
 	setInputValue(manualScriptEl, "");
 	setInputValue(generatedTitleEl, "");
 	setInputValue(generatedTagsEl, "");
+	generatedScripts = {};
 	scriptModeAiBtn.classList.add("active");
 	scriptModeManualBtn.classList.remove("active");
 	aiScriptSection.style.display = "block";
@@ -381,7 +404,7 @@ function clearPresetForm() {
 }
 
 function loadPresetIntoForm(preset) {
-	promptEl.value = preset.prompt || "";
+	topicEl.value = preset.topic || preset.prompt || "";
 	languageEl.value = preset.language || "";
 	refreshVoiceDropdowns();
 	voiceEl.value = preset.voice || "";
@@ -452,7 +475,7 @@ async function savePreset() {
 	const name = presetName.trim();
 	if (!name) return;
 
-	if (!promptEl || !voiceEl || !languageEl || !orientationEl) {
+	if (!topicEl || !voiceEl || !languageEl || !orientationEl) {
 		setStatus(
 			"UI fields are not fully loaded. Please refresh and retry.",
 			"error",
@@ -462,7 +485,8 @@ async function savePreset() {
 
 	const preset = {
 		name,
-		prompt: trimmedValue(promptEl),
+		prompt: trimmedValue(topicEl),
+		topic: trimmedValue(topicEl),
 		script_override: trimmedValue(scriptOverrideEl),
 		voice: valueOrEmpty(voiceEl),
 		language: valueOrEmpty(languageEl),
@@ -497,10 +521,19 @@ async function savePreset() {
 
 // Script and rendering
 function collectJobPayload() {
-	return {
-		prompt: trimmedValue(promptEl),
-		script_override:
-			trimmedValue(scriptOverrideEl) || trimmedValue(manualScriptEl),
+	syncGeneratedScriptsFromEditors();
+
+	const scriptOverride =
+		trimmedValue(scriptOverrideEl) || trimmedValue(manualScriptEl);
+	const scripts = { ...generatedScripts };
+	if (scriptOverride) {
+		scripts.english = scriptOverride;
+	}
+
+	const payload = {
+		topic: trimmedValue(topicEl),
+		prompt: trimmedValue(topicEl),
+		script_override: scriptOverride,
 		voice: trimmedValue(voiceEl),
 		language: trimmedValue(languageEl),
 		orientation: valueOrEmpty(orientationEl),
@@ -508,6 +541,10 @@ function collectJobPayload() {
 		custom_height: Number(valueOrEmpty(customHeightEl) || 0),
 		background_video: valueOrEmpty(bgSelect),
 	};
+	if (Object.keys(scripts).length > 0) {
+		payload.scripts = scripts;
+	}
+	return payload;
 }
 
 async function generateScriptDraft() {
@@ -526,9 +563,10 @@ async function generateScriptDraft() {
 		let title = "";
 		let tags = "";
 		let script = "";
+		let scripts = {};
 
 		// Path 1: Direct JSON response with title, script, tags fields
-		if (data.title && data.script) {
+		if (data.title && (data.script || data.english || data.scripts)) {
 			title = data.title || data.vid_title || "";
 			tags = Array.isArray(data.tags)
 				? data.tags.join(", ")
@@ -537,7 +575,12 @@ async function generateScriptDraft() {
 					: typeof data.tags === "string"
 						? data.tags
 						: "";
-			script = data.script || "";
+			script = data.english || data.script || "";
+			scripts = {
+				english: data.english || data.script || "",
+				hindi: data.hindi || "",
+				telugu: data.telugu || "",
+			};
 		}
 		// Path 2: Script field contains JSON string
 		else if (typeof data.script === "string") {
@@ -559,20 +602,42 @@ async function generateScriptDraft() {
 						: typeof parsed.tags === "string"
 							? parsed.tags
 							: "";
-				script = parsed.script || "";
+				script = parsed.english || parsed.script || "";
+				scripts = {
+					english: parsed.english || parsed.script || "",
+					hindi: parsed.hindi || "",
+					telugu: parsed.telugu || "",
+				};
 			} catch (e) {
 				// If not JSON, treat entire response as script
 				script = data.script;
+				scripts = { english: script };
 			}
 		}
 		// Path 3: Fallback
 		else {
 			script = JSON.stringify(data);
+			scripts = { english: script };
 		}
+
+		if (data.scripts && typeof data.scripts === "object") {
+			scripts = {
+				...scripts,
+				english: data.scripts.english || scripts.english || "",
+				hindi: data.scripts.hindi || scripts.hindi || "",
+				telugu: data.scripts.telugu || scripts.telugu || "",
+			};
+		}
+		generatedScripts = Object.fromEntries(
+			Object.entries(scripts).filter(([, value]) => String(value || "").trim()),
+		);
 
 		generatedTitleEl.value = title;
 		generatedTagsEl.value = tags;
-		scriptOverrideEl.value = script;
+		if (!generatedScripts.english && script) {
+			generatedScripts.english = script;
+		}
+		populateGeneratedScriptEditors();
 		generatedScriptView.style.display = "block";
 		setStatus("Draft ready. Review and edit if needed.", "success");
 	} catch (e) {
@@ -617,7 +682,7 @@ function renderJob(job) {
 	const el = document.createElement("article");
 	el.className = "job";
 
-	const title = job.request?.prompt || "Untitled";
+	const title = job.request?.topic || job.request?.prompt || "Untitled";
 	const script = job.script || "";
 	const err = job.error_message
 		? `<div class="job-error">${job.error_message}</div>`
@@ -726,10 +791,30 @@ function renderGeneratedVideosList(videos) {
 				<span class="video-item-name">${v.name}</span>
 				<video class="video-preview" controls preload="metadata" src="${v.url}"></video>
 			</div>
+			<div class="video-item-actions">
+				<button class="video-action-btn download-generated" data-url="${v.url}" data-video="${v.name}">Download</button>
+			</div>
 		</div>
 	`,
 		)
 		.join("");
+
+	generatedVideosEl
+		.querySelectorAll(".video-action-btn.download-generated")
+		.forEach((btn) => {
+			btn.addEventListener("click", () => {
+				const url = btn.getAttribute("data-url");
+				const name = btn.getAttribute("data-video") || "video.mp4";
+				if (!url) return;
+
+				const link = document.createElement("a");
+				link.href = url;
+				link.download = name;
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+			});
+		});
 }
 
 function renderUploadedVideosList(videos) {
@@ -1107,6 +1192,10 @@ copyTagsBtn?.addEventListener("click", () => {
 		setStatus("Tags copied to clipboard!", "success");
 	}
 });
+
+scriptOverrideEl?.addEventListener("input", syncGeneratedScriptsFromEditors);
+scriptHindiEl?.addEventListener("input", syncGeneratedScriptsFromEditors);
+scriptTeluguEl?.addEventListener("input", syncGeneratedScriptsFromEditors);
 
 // Bootstrap
 async function boot() {

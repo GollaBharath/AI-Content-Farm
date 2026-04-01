@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,6 +79,13 @@ func (b *FFmpegBuilder) Render(ctx context.Context, req RenderRequest) (string, 
 	}
 	args = append(args, "-i", req.AudioPath)
 
+	audioDuration, durErr := b.probeDurationSeconds(ctx, req.AudioPath)
+	if durErr == nil && audioDuration > maxOutputDurationSeconds {
+		speed := audioDuration / maxOutputDurationSeconds
+		filter := fmt.Sprintf("%s,atrim=duration=%.3f", atempoFilter(speed), maxOutputDurationSeconds)
+		args = append(args, "-af", filter)
+	}
+
 	if bgPath != "" {
 		if strings.EqualFold(strings.TrimSpace(req.Orientation), "original") {
 			args = append(args,
@@ -94,6 +103,7 @@ func (b *FFmpegBuilder) Render(ctx context.Context, req RenderRequest) (string, 
 
 	args = append(args,
 		"-shortest",
+		"-t", fmt.Sprintf("%.3f", maxOutputDurationSeconds),
 		"-c:v", "libx264",
 		"-pix_fmt", "yuv420p",
 		"-c:a", "aac",
@@ -110,6 +120,71 @@ func (b *FFmpegBuilder) Render(ctx context.Context, req RenderRequest) (string, 
 	}
 
 	return outPath, nil
+}
+
+const maxOutputDurationSeconds = 55.0
+
+func (b *FFmpegBuilder) probeDurationSeconds(ctx context.Context, mediaPath string) (float64, error) {
+	cmd := exec.CommandContext(
+		ctx,
+		ffprobeBinaryFromFFmpeg(b.bin),
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		mediaPath,
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("ffprobe failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	durationRaw := strings.TrimSpace(stdout.String())
+	duration, err := strconv.ParseFloat(durationRaw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse ffprobe duration %q: %w", durationRaw, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("invalid duration %.3f", duration)
+	}
+
+	return duration, nil
+}
+
+func ffprobeBinaryFromFFmpeg(ffmpegBin string) string {
+	clean := strings.TrimSpace(ffmpegBin)
+	if clean == "" || clean == "ffmpeg" {
+		return "ffprobe"
+	}
+	base := filepath.Base(clean)
+	if strings.Contains(strings.ToLower(base), "ffmpeg") {
+		return filepath.Join(filepath.Dir(clean), strings.Replace(base, "ffmpeg", "ffprobe", 1))
+	}
+	return "ffprobe"
+}
+
+func atempoFilter(speed float64) string {
+	if speed <= 1 {
+		return "atempo=1.0"
+	}
+
+	remaining := speed
+	parts := make([]string, 0, 4)
+	for remaining > 2.0 {
+		parts = append(parts, "atempo=2.0")
+		remaining /= 2.0
+	}
+	if remaining < 0.5 {
+		remaining = 0.5
+	}
+	remaining = math.Round(remaining*1000) / 1000
+	parts = append(parts, fmt.Sprintf("atempo=%.3f", remaining))
+
+	return strings.Join(parts, ",")
 }
 
 func resolveSize(orientation string, customWidth, customHeight int) (int, int) {
