@@ -40,6 +40,10 @@ const bgSelect = byId("background-video");
 const uploadAreaEl = byId("upload-area");
 const uploadInput = byId("video-upload");
 const uploadVideoBtn = byId("upload-videos");
+const newFolderNameEl = byId("new-folder-name");
+const createFolderBtn = byId("create-folder");
+const folderSelectEl = byId("folder-select");
+const renameFolderBtn = byId("rename-folder");
 const youtubeURLInput = byId("youtube-url");
 const importYouTubeBtn = byId("import-youtube");
 
@@ -69,6 +73,7 @@ const deletePresetBtn = byId("delete-preset");
 
 let availableVoices = [];
 let savedPresets = [];
+let assetFolders = [];
 let previewObjectURL = "";
 let generatedScripts = {};
 
@@ -103,6 +108,14 @@ function setInputValue(el, value) {
 	if (el && typeof el.value !== "undefined") {
 		el.value = value;
 	}
+}
+
+function encodePathSegments(pathValue) {
+	return String(pathValue || "")
+		.split("/")
+		.filter(Boolean)
+		.map((part) => encodeURIComponent(part))
+		.join("/");
 }
 
 function syncGeneratedScriptsFromEditors() {
@@ -764,16 +777,90 @@ async function loadVideos() {
 			uploadedResp.json(),
 			generatedResp.json(),
 		]);
+		const foldersResp = await fetch("/api/videos/folders");
+		if (!foldersResp.ok) throw new Error("Failed to load folders");
+		assetFolders = await foldersResp.json();
+		renderFolderSelect(assetFolders || []);
 
-		bgSelect.innerHTML = '<option value="">Auto (Random)</option>';
-		if (Array.isArray(videos) && videos.length > 0) {
-			videos.forEach((v) => bgSelect.appendChild(new Option(v.name, v.name)));
-		}
-		renderUploadedVideosList(videos || []);
+		renderBackgroundOptions(
+			Array.isArray(videos) ? videos : [],
+			assetFolders || [],
+		);
+		renderUploadedVideosList(videos || [], assetFolders || []);
 		renderGeneratedVideosList(generated || []);
 	} catch (e) {
 		setStatus(e.message, "error");
 	}
+}
+
+function renderBackgroundOptions(videos, folders) {
+	bgSelect.innerHTML = '<option value="">Auto (Random)</option>';
+	if (
+		(!Array.isArray(videos) || videos.length === 0) &&
+		(!Array.isArray(folders) || folders.length === 0)
+	) {
+		return;
+	}
+
+	const folderSet = new Set((folders || []).map((f) => f.path).filter(Boolean));
+	const grouped = new Map();
+	const loose = [];
+
+	videos.forEach((v) => {
+		const folder = (v.folder || "").trim();
+		if (!v.path) return;
+
+		if (!folder || !folderSet.has(folder)) {
+			loose.push(v);
+			return;
+		}
+		if (!grouped.has(folder)) {
+			grouped.set(folder, []);
+		}
+		grouped.get(folder).push(v);
+	});
+
+	const folderNames = Array.from(grouped.keys()).sort((a, b) =>
+		a.localeCompare(b),
+	);
+	folderNames.forEach((folder) => {
+		const group = document.createElement("optgroup");
+		group.label = folder;
+		grouped.get(folder).forEach((v) => {
+			group.appendChild(new Option(v.path, v.path));
+		});
+		bgSelect.appendChild(group);
+	});
+
+	const emptyFolders = (folders || [])
+		.filter((folder) => folder.path && !grouped.has(folder.path))
+		.sort((a, b) => a.path.localeCompare(b.path));
+	if (emptyFolders.length > 0) {
+		const emptyGroup = document.createElement("optgroup");
+		emptyGroup.label = "Empty Folders";
+		emptyFolders.forEach((folder) => {
+			emptyGroup.appendChild(new Option(folder.path, folder.path));
+		});
+		bgSelect.appendChild(emptyGroup);
+	}
+
+	if (loose.length > 0) {
+		const looseGroup = document.createElement("optgroup");
+		looseGroup.label = "Ungrouped";
+		loose.forEach((v) => {
+			looseGroup.appendChild(new Option(v.path, v.path));
+		});
+		bgSelect.appendChild(looseGroup);
+	}
+}
+
+function renderFolderSelect(folders) {
+	if (!folderSelectEl) return;
+	folderSelectEl.innerHTML = '<option value="">Select folder</option>';
+	(folders || []).forEach((folder) => {
+		if (!folder.path) return;
+		folderSelectEl.appendChild(new Option(folder.path, folder.path));
+	});
 }
 
 function renderGeneratedVideosList(videos) {
@@ -817,40 +904,101 @@ function renderGeneratedVideosList(videos) {
 		});
 }
 
-function renderUploadedVideosList(videos) {
+function renderUploadedVideosList(videos, folders) {
 	if (!videos || videos.length === 0) {
 		uploadedVideosEl.innerHTML =
 			'<p class="empty-state">No uploaded videos</p>';
 		return;
 	}
-	uploadedVideosEl.innerHTML = videos
-		.map(
-			(v) => `
-		<div class="video-item">
-			<div class="video-item-main">
-				<span class="video-item-name">${v.name}</span>
-				<video class="video-preview" controls preload="metadata" src="${v.url}"></video>
-			</div>
-			<div class="video-item-actions">
-				<button class="video-action-btn rename" data-video="${v.name}">Rename</button>
-				<button class="video-action-btn download" data-video="${v.name}">Download</button>
-				<button class="video-action-btn delete" data-video="${v.name}">Delete</button>
-			</div>
-		</div>
-	`,
-		)
+
+	const grouped = new Map();
+	const loose = [];
+	videos.forEach((v) => {
+		const folder = (v.folder || "").trim();
+		if (!folder) {
+			loose.push(v);
+			return;
+		}
+		if (!grouped.has(folder)) {
+			grouped.set(folder, []);
+		}
+		grouped.get(folder).push(v);
+	});
+	const folderOptions = (folders || [])
+		.map((folder) => `<option value="${folder.path}">${folder.path}</option>`)
 		.join("");
 
+	const sections = [];
+	Array.from(grouped.keys())
+		.sort((a, b) => a.localeCompare(b))
+		.forEach((folder) => {
+			sections.push(
+				`<div class="asset-folder-heading">${folder}</div>` +
+					grouped
+						.get(folder)
+						.map((v) => renderUploadedVideoCard(v, folderOptions))
+						.join(""),
+			);
+		});
+
+	if (loose.length > 0) {
+		sections.push(
+			'<div class="asset-folder-heading">Ungrouped</div>' +
+				loose.map((v) => renderUploadedVideoCard(v, folderOptions)).join(""),
+		);
+	}
+
+	uploadedVideosEl.innerHTML = sections.join("");
+
+	uploadedVideosEl
+		.querySelectorAll(".video-folder-select")
+		.forEach((select) => {
+			const videoPath = select.getAttribute("data-folder-for") || "";
+			const current = videos.find(
+				(v) => (v.path || v.name || "") === videoPath,
+			);
+			if (current && current.folder) {
+				select.value = current.folder;
+			}
+		});
+
 	uploadedVideosEl.querySelectorAll(".video-action-btn").forEach((btn) => {
-		const videoName = btn.getAttribute("data-video");
+		const videoPath = btn.getAttribute("data-video");
 		if (btn.classList.contains("rename")) {
-			btn.addEventListener("click", () => renameVideo(videoName));
+			btn.addEventListener("click", () => renameVideo(videoPath));
 		} else if (btn.classList.contains("download")) {
-			btn.addEventListener("click", () => downloadVideo(videoName));
+			btn.addEventListener("click", () => downloadVideo(videoPath));
+		} else if (btn.classList.contains("move")) {
+			btn.addEventListener("click", () => moveVideo(videoPath, btn));
 		} else if (btn.classList.contains("delete")) {
-			btn.addEventListener("click", () => deleteVideo(videoName));
+			btn.addEventListener("click", () => deleteVideo(videoPath));
 		}
 	});
+}
+
+function renderUploadedVideoCard(v, folderOptions) {
+	const value = v.path || v.name;
+	const display = v.folder ? `${v.folder}/${v.name}` : v.name;
+	const moveOptions = `<option value="">Root</option>${folderOptions || ""}`;
+	return `
+		<div class="video-item">
+			<div class="video-item-main">
+				<span class="video-item-name">${display}</span>
+				<video class="video-preview" controls preload="metadata" src="${v.url}"></video>
+			</div>
+			<div class="video-item-actions video-folder-actions">
+				<select class="video-folder-select" data-folder-for="${value}">
+					${moveOptions}
+				</select>
+				<button class="video-action-btn move" data-video="${value}">Move</button>
+			</div>
+			<div class="video-item-actions">
+				<button class="video-action-btn rename" data-video="${value}">Rename</button>
+				<button class="video-action-btn download" data-video="${value}">Download</button>
+				<button class="video-action-btn delete" data-video="${value}">Delete</button>
+			</div>
+		</div>
+	`;
 }
 
 async function renameVideo(oldName) {
@@ -875,7 +1023,28 @@ async function renameVideo(oldName) {
 }
 
 async function downloadVideo(videoName) {
-	window.location.href = `/api/videos/download?name=${encodeURIComponent(videoName)}`;
+	window.location.href = `/inputs/${encodePathSegments(videoName)}`;
+}
+
+async function moveVideo(videoPath, buttonEl) {
+	const itemEl = buttonEl?.closest(".video-item");
+	const select = itemEl?.querySelector(".video-folder-select");
+	if (!select) return;
+	const folder = (select.value || "").trim();
+	setStatus("Moving video...");
+	try {
+		const resp = await fetch("/api/videos/move", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ source_path: videoPath, folder }),
+		});
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) throw new Error(data.error || "Move failed");
+		await loadVideos();
+		setStatus("Video moved.", "success");
+	} catch (e) {
+		setStatus(e.message, "error");
+	}
 }
 
 async function deleteVideo(videoName) {
@@ -895,6 +1064,59 @@ async function deleteVideo(videoName) {
 		setStatus("Video deleted.", "success");
 	} catch (e) {
 		setStatus(e.message, "error");
+	}
+}
+
+async function createFolder() {
+	const folderName = (newFolderNameEl.value || "").trim();
+	if (!folderName) {
+		setStatus("Enter a folder name first.", "error");
+		return;
+	}
+	createFolderBtn.disabled = true;
+	setStatus("Creating folder...");
+	try {
+		const resp = await fetch("/api/videos/folders", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name: folderName }),
+		});
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) throw new Error(data.error || "Create folder failed");
+		newFolderNameEl.value = "";
+		await loadVideos();
+		setStatus("Folder created.", "success");
+	} catch (e) {
+		setStatus(e.message, "error");
+	} finally {
+		createFolderBtn.disabled = false;
+	}
+}
+
+async function renameFolder() {
+	const oldName = (folderSelectEl.value || "").trim();
+	if (!oldName) {
+		setStatus("Select a folder first.", "error");
+		return;
+	}
+	const newName = prompt("Enter new folder name:", oldName);
+	if (!newName || !newName.trim() || newName.trim() === oldName) return;
+	renameFolderBtn.disabled = true;
+	setStatus("Renaming folder...");
+	try {
+		const resp = await fetch("/api/videos/folders/rename", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ old_name: oldName, new_name: newName.trim() }),
+		});
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) throw new Error(data.error || "Rename folder failed");
+		await loadVideos();
+		setStatus("Folder renamed.", "success");
+	} catch (e) {
+		setStatus(e.message, "error");
+	} finally {
+		renameFolderBtn.disabled = false;
 	}
 }
 
@@ -1154,6 +1376,12 @@ previewVoiceBtn?.addEventListener("click", () =>
 );
 uploadVideoBtn?.addEventListener("click", () => uploadVideos());
 importYouTubeBtn?.addEventListener("click", () => importYouTubeVideo());
+createFolderBtn?.addEventListener("click", () =>
+	createFolder().catch((e) => setStatus(e.message, "error")),
+);
+renameFolderBtn?.addEventListener("click", () =>
+	renameFolder().catch((e) => setStatus(e.message, "error")),
+);
 refreshVideosBtn?.addEventListener("click", () =>
 	loadVideos().catch((e) => setStatus(e.message, "error")),
 );

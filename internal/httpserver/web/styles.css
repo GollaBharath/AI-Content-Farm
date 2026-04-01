@@ -642,6 +642,14 @@ select {
 	gap: 12px;
 	background: #fff;
 }
+.asset-folder-heading {
+	margin: 14px 0 8px;
+	font-size: 0.82rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-secondary);
+}
 .video-item-name {
 	font-weight: 600;
 	display: block;
@@ -659,6 +667,18 @@ select {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
+}
+.video-folder-actions {
+	align-items: center;
+}
+.video-folder-select {
+	flex: 1;
+	min-width: 180px;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: #fff;
+	color: var(--text-primary);
 }
 .video-action-btn {
 	background: var(--bg-secondary);
@@ -680,4 +700,7 @@ select {
 	background: var(--error);
 	color: #fff;
 	border-color: var(--error);
+}
+.asset-folder-heading + .video-item {
+	margin-top: 8px;
 }

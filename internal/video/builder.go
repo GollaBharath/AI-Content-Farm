@@ -215,9 +215,12 @@ func resolveBackground(inputDir, selected string) (string, error) {
 	}
 
 	if strings.TrimSpace(selected) != "" {
-		p := filepath.Join(inputDir, filepath.Base(selected))
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
+		rel := filepath.Clean(strings.TrimSpace(selected))
+		if rel != "." && rel != string(filepath.Separator) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			p := filepath.Join(inputDir, rel)
+			if _, err := os.Stat(p); err == nil {
+				return p, nil
+			}
 		}
 	}
 

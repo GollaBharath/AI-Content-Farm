@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -73,6 +74,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/voices", s.handleListVoices)
 	s.mux.HandleFunc("POST /api/voices/preview", s.handlePreviewVoice)
 	s.mux.HandleFunc("GET /api/videos", s.handleListVideos)
+	s.mux.HandleFunc("GET /api/videos/folders", s.handleListVideoFolders)
+	s.mux.HandleFunc("POST /api/videos/folders", s.handleCreateVideoFolder)
+	s.mux.HandleFunc("POST /api/videos/folders/rename", s.handleRenameVideoFolder)
+	s.mux.HandleFunc("POST /api/videos/move", s.handleMoveVideo)
+	s.mux.HandleFunc("POST /api/videos/rename", s.handleRenameVideo)
+	s.mux.HandleFunc("POST /api/videos/delete", s.handleDeleteVideo)
 	s.mux.HandleFunc("GET /api/videos/generated", s.handleListGeneratedVideos)
 	s.mux.HandleFunc("POST /api/videos/import-youtube", s.handleImportYouTube)
 	s.mux.HandleFunc("POST /api/videos/upload", s.handleUploadVideos)
@@ -348,29 +355,132 @@ func (s *Server) handleListVideos(w http.ResponseWriter, _ *http.Request) {
 	}
 	_ = os.MkdirAll(cfg.InputVideosDir, 0o755)
 
-	entries, err := os.ReadDir(cfg.InputVideosDir)
+	entries, err := collectVideoEntries(cfg.InputVideosDir)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	writeJSON(w, http.StatusOK, entries)
+}
 
-	videos := make([]map[string]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		switch ext {
-		case ".mp4", ".mov", ".mkv", ".webm":
-			videos = append(videos, map[string]string{
-				"name": entry.Name(),
-				"url":  "/inputs/" + entry.Name(),
-			})
-		}
+func (s *Server) handleListVideoFolders(w http.ResponseWriter, _ *http.Request) {
+	cfg, err := s.settings.Get()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = os.MkdirAll(cfg.InputVideosDir, 0o755)
+
+	folders, err := collectVideoFolders(cfg.InputVideosDir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, folders)
+}
+
+func (s *Server) handleCreateVideoFolder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
 	}
 
-	sort.Slice(videos, func(i, j int) bool { return videos[i]["name"] < videos[j]["name"] })
-	writeJSON(w, http.StatusOK, videos)
+	cfg, err := s.settings.Get()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	folder, err := cleanAssetRelPath(req.Name)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if folder == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "folder name cannot be empty"})
+		return
+	}
+
+	fullPath, err := resolveAssetPath(cfg.InputVideosDir, folder)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := os.MkdirAll(fullPath, 0o755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "created", "folder": filepath.ToSlash(folder)})
+}
+
+func (s *Server) handleRenameVideoFolder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OldName string `json:"old_name"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	if err := renameAssetRelPath(s, req.OldName, req.NewName, true); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "renamed"})
+}
+
+func (s *Server) handleMoveVideo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SourcePath string `json:"source_path"`
+		Folder     string `json:"folder"`
+		TargetName string `json:"target_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	if err := moveAssetToFolder(s, req.SourcePath, req.Folder, req.TargetName); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "moved"})
+}
+
+func (s *Server) handleRenameVideo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OldName string `json:"old_name"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	if err := renameAssetRelPath(s, req.OldName, req.NewName, false); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "renamed"})
+}
+
+func (s *Server) handleDeleteVideo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	if err := deleteAssetRelPath(s, req.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (s *Server) handleListGeneratedVideos(w http.ResponseWriter, _ *http.Request) {
@@ -473,7 +583,7 @@ func (s *Server) handleInputFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	serveNamedFile(w, r, "/inputs/", cfg.InputVideosDir)
+	serveRelativeFile(w, r, "/inputs/", cfg.InputVideosDir)
 }
 
 func serveNamedFile(w http.ResponseWriter, r *http.Request, prefix, root string) {
@@ -487,6 +597,298 @@ func serveNamedFile(w http.ResponseWriter, r *http.Request, prefix, root string)
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(root, name))
+}
+
+type listedVideo struct {
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Folder     string `json:"folder,omitempty"`
+	FolderRank int    `json:"folder_rank,omitempty"`
+	URL        string `json:"url"`
+}
+
+func collectVideoEntries(root string) ([]listedVideo, error) {
+	items := make([]listedVideo, 0, 64)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		switch ext {
+		case ".mp4", ".mov", ".mkv", ".webm":
+		default:
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		folder := filepath.ToSlash(filepath.Dir(rel))
+		if folder == "." {
+			folder = ""
+		}
+
+		folderRank := 2
+		switch {
+		case strings.HasPrefix(folder, "uploads/"):
+			folderRank = 0
+		case folder != "":
+			folderRank = 1
+		}
+
+		items = append(items, listedVideo{
+			Name:       filepath.Base(rel),
+			Path:       rel,
+			Folder:     folder,
+			FolderRank: folderRank,
+			URL:        "/inputs/" + rel,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].FolderRank != items[j].FolderRank {
+			return items[i].FolderRank < items[j].FolderRank
+		}
+		if items[i].Folder != items[j].Folder {
+			return items[i].Folder < items[j].Folder
+		}
+		if items[i].Name != items[j].Name {
+			return items[i].Name < items[j].Name
+		}
+		return items[i].Path < items[j].Path
+	})
+
+	return items, nil
+}
+
+func serveRelativeFile(w http.ResponseWriter, r *http.Request, prefix, root string) {
+	rel, err := cleanAssetRelPath(strings.TrimPrefix(r.URL.Path, prefix))
+	if err != nil || rel == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	fullPath, err := resolveAssetPath(root, rel)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := os.Stat(fullPath); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFile(w, r, fullPath)
+}
+
+type listedFolder struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	URL  string `json:"url"`
+}
+
+func collectVideoFolders(root string) ([]listedFolder, error) {
+	folders := make([]listedFolder, 0, 32)
+	seen := map[string]struct{}{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if path == root || !d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." || rel == "" {
+			return nil
+		}
+		if _, ok := seen[rel]; ok {
+			return nil
+		}
+		seen[rel] = struct{}{}
+		folders = append(folders, listedFolder{Name: filepath.Base(rel), Path: rel, URL: "/inputs/" + rel})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(folders, func(i, j int) bool {
+		if strings.HasPrefix(folders[i].Path, "uploads/") != strings.HasPrefix(folders[j].Path, "uploads/") {
+			return strings.HasPrefix(folders[i].Path, "uploads/")
+		}
+		return folders[i].Path < folders[j].Path
+	})
+
+	return folders, nil
+}
+
+func cleanAssetRelPath(value string) (string, error) {
+	rel := filepath.ToSlash(strings.TrimSpace(value))
+	rel = strings.TrimPrefix(rel, "/")
+	rel = filepath.Clean(rel)
+	if rel == "" || rel == "." || rel == "/" || rel == string(filepath.Separator) {
+		return "", nil
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid path")
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+func resolveAssetPath(root, rel string) (string, error) {
+	rel, err := cleanAssetRelPath(rel)
+	if err != nil {
+		return "", err
+	}
+	if rel == "" {
+		return "", fmt.Errorf("invalid path")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	fullPath := filepath.Join(root, filepath.FromSlash(rel))
+	rootClean := filepath.Clean(root)
+	fullClean := filepath.Clean(fullPath)
+	if fullClean != rootClean && !strings.HasPrefix(fullClean, rootClean+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid path")
+	}
+	return fullPath, nil
+}
+
+func videoRootPath(s *Server) (string, error) {
+	cfg, err := s.settings.Get()
+	if err != nil {
+		return "", err
+	}
+	return cfg.InputVideosDir, nil
+}
+
+func renameAssetRelPath(s *Server, oldName, newName string, folderOnly bool) error {
+	root, err := videoRootPath(s)
+	if err != nil {
+		return err
+	}
+	oldRel, err := cleanAssetRelPath(oldName)
+	if err != nil {
+		return err
+	}
+	newRel, err := cleanAssetRelPath(newName)
+	if err != nil {
+		return err
+	}
+	if oldRel == "" || newRel == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	if !strings.Contains(newRel, "/") {
+		parent := filepath.ToSlash(filepath.Dir(oldRel))
+		if parent != "." && parent != "" {
+			newRel = filepath.ToSlash(filepath.Join(parent, newRel))
+		}
+	}
+	oldPath, err := resolveAssetPath(root, oldRel)
+	if err != nil {
+		return err
+	}
+	newPath, err := resolveAssetPath(root, newRel)
+	if err != nil {
+		return err
+	}
+	if folderOnly {
+		if stat, statErr := os.Stat(oldPath); statErr != nil || !stat.IsDir() {
+			return fmt.Errorf("folder not found")
+		}
+	} else {
+		if _, statErr := os.Stat(oldPath); statErr != nil {
+			return fmt.Errorf("item not found")
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func moveAssetToFolder(s *Server, sourcePath, folder, targetName string) error {
+	root, err := videoRootPath(s)
+	if err != nil {
+		return err
+	}
+	sourceRel, err := cleanAssetRelPath(sourcePath)
+	if err != nil {
+		return err
+	}
+	if sourceRel == "" {
+		return fmt.Errorf("source path cannot be empty")
+	}
+	sourceFull, err := resolveAssetPath(root, sourceRel)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(sourceFull); err != nil {
+		return fmt.Errorf("source not found")
+	}
+	folderRel, err := cleanAssetRelPath(folder)
+	if err != nil {
+		return err
+	}
+	targetDir := root
+	if folderRel != "" {
+		targetDir, err = resolveAssetPath(root, folderRel)
+		if err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return err
+	}
+	baseName := filepath.Base(sourceFull)
+	if strings.TrimSpace(targetName) != "" {
+		baseName = filepath.Base(strings.TrimSpace(targetName))
+	}
+	targetPath := filepath.Join(targetDir, baseName)
+	if err := os.Rename(sourceFull, targetPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func deleteAssetRelPath(s *Server, name string) error {
+	root, err := videoRootPath(s)
+	if err != nil {
+		return err
+	}
+	rel, err := cleanAssetRelPath(name)
+	if err != nil {
+		return err
+	}
+	if rel == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	fullPath, err := resolveAssetPath(root, rel)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(fullPath); err != nil {
+		return err
+	}
+	return nil
 }
 
 func ListenAndServe(ctx context.Context, addr string, handler http.Handler) error {

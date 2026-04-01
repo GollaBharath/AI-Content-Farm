@@ -48,6 +48,12 @@ func (s *Server) handleImportYouTube(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	importsRoot := filepath.Join(cfg.InputVideosDir, "uploads")
+	if err := os.MkdirAll(importsRoot, 0o755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
 	workingDir, err := os.MkdirTemp("", "youtube-import-")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -61,7 +67,14 @@ func (s *Server) handleImportYouTube(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clips, err := splitYouTubeVideoIntoClips(r.Context(), sourcePath, cfg.InputVideosDir)
+	batchFolderName := fmt.Sprintf("youtube-%d", time.Now().Unix())
+	destDir := filepath.Join(importsRoot, batchFolderName)
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	clips, err := splitYouTubeVideoIntoClips(r.Context(), sourcePath, destDir)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -75,11 +88,11 @@ func (s *Server) handleImportYouTube(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"source_url":    url,
-		"clips_created": len(clips),
+		"source_url":       url,
+		"clips_created":    len(clips),
 		"clips_compressed": compressedCount,
-		"clips":         clips,
-		"upload_dir":    cfg.InputVideosDir,
+		"clips":            clips,
+		"upload_dir":       filepath.ToSlash(filepath.Join("uploads", batchFolderName)),
 	})
 }
 
