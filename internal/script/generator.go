@@ -378,7 +378,8 @@ Rules:
 - No markdown, no code fences, no extra keys.
 - Keep each narration short, punchy, and suitable for faceless short videos.
 - Ensure all 3 narrations communicate the same core message.
-- Make sure each narration is atleast 140 words or so, make sure that we get atleast 1 minute in piper tts.
+- Make sure each narration is atleast 100 words or so, make sure that we get atleast 1 minute in piper tts.
+- Make sure that the languages are actually written in those languages' text, not stuff like "hinglish".
 `, topic)
 }
 

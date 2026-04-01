@@ -870,9 +870,37 @@ function renderGeneratedVideosList(videos) {
 		return;
 	}
 
-	generatedVideosEl.innerHTML = videos
-		.map(
-			(v) => `
+	const latest = videos.slice(0, 3);
+	const remaining = videos.slice(3);
+
+	generatedVideosEl.innerHTML = `
+		<div class="asset-folder-heading">Latest</div>
+		${latest.map((v) => renderGeneratedVideoCard(v)).join("")}
+		${remaining.length > 0 ? `<div class="asset-folder-heading">All Generated</div>${remaining.map((v) => renderGeneratedVideoCard(v)).join("")}` : ""}
+	`;
+
+	generatedVideosEl.querySelectorAll(".video-action-btn.download-generated").forEach((btn) => {
+		btn.addEventListener("click", () => {
+			const url = btn.getAttribute("data-url");
+			const name = btn.getAttribute("data-video") || "video.mp4";
+			if (!url) return;
+
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = name;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		});
+	});
+
+	generatedVideosEl.querySelectorAll(".video-action-btn.delete-generated").forEach((btn) => {
+		btn.addEventListener("click", () => deleteGeneratedVideo(btn.getAttribute("data-video")));
+	});
+}
+
+function renderGeneratedVideoCard(v) {
+	return `
 		<div class="video-item preview-only">
 			<div class="video-item-main">
 				<span class="video-item-name">${v.name}</span>
@@ -880,28 +908,10 @@ function renderGeneratedVideosList(videos) {
 			</div>
 			<div class="video-item-actions">
 				<button class="video-action-btn download-generated" data-url="${v.url}" data-video="${v.name}">Download</button>
+				<button class="video-action-btn delete-generated" data-video="${v.name}">Delete</button>
 			</div>
 		</div>
-	`,
-		)
-		.join("");
-
-	generatedVideosEl
-		.querySelectorAll(".video-action-btn.download-generated")
-		.forEach((btn) => {
-			btn.addEventListener("click", () => {
-				const url = btn.getAttribute("data-url");
-				const name = btn.getAttribute("data-video") || "video.mp4";
-				if (!url) return;
-
-				const link = document.createElement("a");
-				link.href = url;
-				link.download = name;
-				document.body.appendChild(link);
-				link.click();
-				document.body.removeChild(link);
-			});
-		});
+	`;
 }
 
 function renderUploadedVideosList(videos, folders) {
@@ -1062,6 +1072,26 @@ async function deleteVideo(videoName) {
 		}
 		await loadVideos();
 		setStatus("Video deleted.", "success");
+	} catch (e) {
+		setStatus(e.message, "error");
+	}
+}
+
+async function deleteGeneratedVideo(videoName) {
+	if (!confirm(`Delete "${videoName}"?`)) return;
+	setStatus("Deleting generated video...");
+	try {
+		const resp = await fetch("/api/videos/generated/delete", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name: videoName }),
+		});
+		if (!resp.ok) {
+			const data = await resp.json().catch(() => ({}));
+			throw new Error(data.error || "Delete failed");
+		}
+		await loadVideos();
+		setStatus("Generated video deleted.", "success");
 	} catch (e) {
 		setStatus(e.message, "error");
 	}

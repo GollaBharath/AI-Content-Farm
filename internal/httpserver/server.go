@@ -81,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/videos/rename", s.handleRenameVideo)
 	s.mux.HandleFunc("POST /api/videos/delete", s.handleDeleteVideo)
 	s.mux.HandleFunc("GET /api/videos/generated", s.handleListGeneratedVideos)
+	s.mux.HandleFunc("POST /api/videos/generated/delete", s.handleDeleteGeneratedVideo)
 	s.mux.HandleFunc("POST /api/videos/import-youtube", s.handleImportYouTube)
 	s.mux.HandleFunc("POST /api/videos/upload", s.handleUploadVideos)
 }
@@ -497,7 +498,13 @@ func (s *Server) handleListGeneratedVideos(w http.ResponseWriter, _ *http.Reques
 		return
 	}
 
-	videos := make([]map[string]string, 0, len(entries))
+	type generatedVideo struct {
+		Name    string    `json:"name"`
+		Path    string    `json:"path"`
+		URL     string    `json:"url"`
+		ModTime time.Time `json:"mod_time"`
+	}
+	videos := make([]generatedVideo, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -505,15 +512,53 @@ func (s *Server) handleListGeneratedVideos(w http.ResponseWriter, _ *http.Reques
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
 		switch ext {
 		case ".mp4", ".mov", ".mkv", ".webm":
-			videos = append(videos, map[string]string{
-				"name": entry.Name(),
-				"url":  "/outputs/" + entry.Name(),
+			st, statErr := entry.Info()
+			if statErr != nil {
+				continue
+			}
+			videos = append(videos, generatedVideo{
+				Name:    entry.Name(),
+				Path:    entry.Name(),
+				URL:     "/outputs/" + entry.Name(),
+				ModTime: st.ModTime().UTC(),
 			})
 		}
 	}
 
-	sort.Slice(videos, func(i, j int) bool { return videos[i]["name"] < videos[j]["name"] })
+	sort.Slice(videos, func(i, j int) bool {
+		if !videos[i].ModTime.Equal(videos[j].ModTime) {
+			return videos[i].ModTime.After(videos[j].ModTime)
+		}
+		return videos[i].Name < videos[j].Name
+	})
 	writeJSON(w, http.StatusOK, videos)
+}
+
+func (s *Server) handleDeleteGeneratedVideo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	cfg, err := s.settings.Get()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	name := filepath.Base(strings.TrimSpace(req.Name))
+	if name == "" || name == "." || name == "/" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid video name"})
+		return
+	}
+	fullPath := filepath.Join(cfg.OutputVideosDir, name)
+	if err := os.Remove(fullPath); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (s *Server) handleUploadVideos(w http.ResponseWriter, r *http.Request) {
