@@ -879,24 +879,30 @@ function renderGeneratedVideosList(videos) {
 		${remaining.length > 0 ? `<div class="asset-folder-heading">All Generated</div>${remaining.map((v) => renderGeneratedVideoCard(v)).join("")}` : ""}
 	`;
 
-	generatedVideosEl.querySelectorAll(".video-action-btn.download-generated").forEach((btn) => {
-		btn.addEventListener("click", () => {
-			const url = btn.getAttribute("data-url");
-			const name = btn.getAttribute("data-video") || "video.mp4";
-			if (!url) return;
+	generatedVideosEl
+		.querySelectorAll(".video-action-btn.download-generated")
+		.forEach((btn) => {
+			btn.addEventListener("click", () => {
+				const url = btn.getAttribute("data-url");
+				const name = btn.getAttribute("data-video") || "video.mp4";
+				if (!url) return;
 
-			const link = document.createElement("a");
-			link.href = url;
-			link.download = name;
-			document.body.appendChild(link);
-			link.click();
-			document.body.removeChild(link);
+				const link = document.createElement("a");
+				link.href = url;
+				link.download = name;
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+			});
 		});
-	});
 
-	generatedVideosEl.querySelectorAll(".video-action-btn.delete-generated").forEach((btn) => {
-		btn.addEventListener("click", () => deleteGeneratedVideo(btn.getAttribute("data-video")));
-	});
+	generatedVideosEl
+		.querySelectorAll(".video-action-btn.delete-generated")
+		.forEach((btn) => {
+			btn.addEventListener("click", () =>
+				deleteGeneratedVideo(btn.getAttribute("data-video")),
+			);
+		});
 }
 
 function renderGeneratedVideoCard(v) {
