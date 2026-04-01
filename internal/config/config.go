@@ -31,7 +31,6 @@ type Config struct {
 	FFmpegBinaryPath     string
 	AutoPilotEnabled     bool
 	AutoPilotEvery       int
-	AutoTopic            string
 	AutoPrompt           string
 	AutoVoice            string
 }
@@ -61,7 +60,6 @@ func Load() (Config, error) {
 		FFmpegBinaryPath:     envOrDefault("FFMPEG_BIN", "ffmpeg"),
 		AutoPilotEnabled:     envBoolOrDefault("AUTOPILOT_ENABLED", false),
 		AutoPilotEvery:       envIntOrDefault("AUTOPILOT_EVERY_SECONDS", 1800),
-		AutoTopic:            envOrDefault("AUTOPILOT_TOPIC", "daily high-retention story"),
 		AutoPrompt:           envOrDefault("AUTOPILOT_PROMPT", "Create one punchy, high-retention short script with a strong hook."),
 		AutoVoice:            os.Getenv("AUTOPILOT_VOICE"),
 	}

@@ -20,14 +20,13 @@ func NewComposeManager(projectDir, service string) *ComposeManager {
 	}
 }
 
-func (m *ComposeManager) SyncForProvider(ctx context.Context, provider string) error {
+func (m *ComposeManager) SyncPiperEnabled(ctx context.Context, enabled bool) error {
 	if m == nil || m.service == "" {
 		return nil
 	}
 
-	mode := normalizeProvider(provider)
 	args := []string{}
-	if mode == ProviderPiper {
+	if enabled {
 		args = append(args, "start", m.service)
 	} else {
 		args = append(args, "stop", m.service)
@@ -40,7 +39,7 @@ func (m *ComposeManager) SyncForProvider(ctx context.Context, provider string) e
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		trimmed := strings.TrimSpace(string(output))
-		if mode == ProviderPiper && strings.Contains(strings.ToLower(trimmed), "no such container") {
+		if enabled && strings.Contains(strings.ToLower(trimmed), "no such container") {
 			return fmt.Errorf("docker container %q was not found; create the local tts container first", m.service)
 		}
 		if trimmed == "" {

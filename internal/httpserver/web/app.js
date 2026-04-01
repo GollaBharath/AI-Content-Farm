@@ -25,7 +25,6 @@ const manualScriptEl = byId("manual-script");
 const renderJobBtn = byId("render-job");
 const renderJobManualBtn = byId("render-job-manual");
 
-const topicEl = byId("topic");
 const promptEl = byId("prompt");
 
 const languageEl = byId("language");
@@ -52,6 +51,8 @@ const mainTabContents = document.querySelectorAll(".main-tab-content");
 const inputDirEl = byId("input-dir");
 const outputDirEl = byId("output-dir");
 const defaultOrientationEl = byId("default-orientation");
+const piperToggleEl = byId("piper-toggle");
+const piperToggleLabelEl = byId("piper-toggle-label");
 const ttsProviderEl = byId("tts-provider");
 const defaultLanguageEl = byId("default-language");
 const defaultVoiceEl = byId("default-voice");
@@ -67,6 +68,19 @@ const deletePresetBtn = byId("delete-preset");
 let availableVoices = [];
 let savedPresets = [];
 let previewObjectURL = "";
+
+function selectedProvider() {
+	const provider = (ttsProviderEl?.value || "").trim().toLowerCase();
+	if (provider === "piper" || provider === "auto") {
+		return provider;
+	}
+	return "elevenlabs";
+}
+
+function updatePiperToggleLabel() {
+	if (!piperToggleLabelEl) return;
+	piperToggleLabelEl.textContent = piperToggleEl?.checked ? "On" : "Off";
+}
 
 // Setup functions
 function setStatus(text, type = "info") {
@@ -142,13 +156,12 @@ function setupMainTabs() {
 				targetTab.classList.add("active");
 				// Optionally load tab-specific data on first click
 				if (tabName === "jobs") loadJobs().catch(() => {});
-				if (tabName === "videos" || tabName === "assets") loadVideos().catch(() => {});
+				if (tabName === "videos" || tabName === "assets")
+					loadVideos().catch(() => {});
 			}
 		});
 	});
 }
-
-
 
 function setupUploadArea() {
 	uploadAreaEl.addEventListener("click", () => uploadInput.click());
@@ -184,7 +197,9 @@ function normalizeVoice(v) {
 
 async function loadVoices() {
 	try {
-		const resp = await fetch("/api/voices");
+		const provider = selectedProvider();
+		const query = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+		const resp = await fetch(`/api/voices${query}`);
 		if (!resp.ok) {
 			const data = await resp.json().catch(() => ({}));
 			throw new Error(data.error || "Failed to load voices");
@@ -210,7 +225,13 @@ async function loadVoices() {
 		refreshVoiceDropdowns();
 		renderVoicesList();
 	} catch (e) {
-		setStatus("Failed to load voices: " + e.message, "error");
+		availableVoices = [];
+		renderLanguageDropdown(languageEl, [], "Auto");
+		renderLanguageDropdown(defaultLanguageEl, [], "Auto");
+		refreshVoiceDropdowns();
+		const provider = selectedProvider();
+		voicesListEl.innerHTML = `<p class="empty-state">No ${provider} voices available</p>`;
+		setStatus(`Failed to load ${provider} voices: ${e.message}`, "error");
 	}
 }
 
@@ -228,7 +249,16 @@ function filteredVoicesByLanguage(language) {
 	if (!language) {
 		return availableVoices;
 	}
-	return availableVoices.filter((v) => v.language_code === language);
+	const filtered = availableVoices.filter((v) => v.language_code === language);
+	if (filtered.length > 0) {
+		return filtered;
+	}
+	const provider = selectedProvider();
+	if (provider === "elevenlabs" || provider === "auto") {
+		// ElevenLabs multilingual models can synthesize multiple languages per voice.
+		return availableVoices;
+	}
+	return filtered;
 }
 
 function refreshVoiceDropdowns() {
@@ -330,7 +360,6 @@ async function previewVoice(voiceKey) {
 
 // Preset functions
 function clearPresetForm() {
-	setInputValue(topicEl, "");
 	setInputValue(promptEl, "");
 	setInputValue(languageEl, "");
 	setInputValue(voiceEl, "");
@@ -352,7 +381,6 @@ function clearPresetForm() {
 }
 
 function loadPresetIntoForm(preset) {
-	topicEl.value = preset.topic || "";
 	promptEl.value = preset.prompt || "";
 	languageEl.value = preset.language || "";
 	refreshVoiceDropdowns();
@@ -424,7 +452,7 @@ async function savePreset() {
 	const name = presetName.trim();
 	if (!name) return;
 
-	if (!topicEl || !promptEl || !voiceEl || !languageEl || !orientationEl) {
+	if (!promptEl || !voiceEl || !languageEl || !orientationEl) {
 		setStatus(
 			"UI fields are not fully loaded. Please refresh and retry.",
 			"error",
@@ -434,7 +462,6 @@ async function savePreset() {
 
 	const preset = {
 		name,
-		topic: trimmedValue(topicEl),
 		prompt: trimmedValue(promptEl),
 		script_override: trimmedValue(scriptOverrideEl),
 		voice: valueOrEmpty(voiceEl),
@@ -471,7 +498,6 @@ async function savePreset() {
 // Script and rendering
 function collectJobPayload() {
 	return {
-		topic: trimmedValue(topicEl),
 		prompt: trimmedValue(promptEl),
 		script_override:
 			trimmedValue(scriptOverrideEl) || trimmedValue(manualScriptEl),
@@ -591,7 +617,7 @@ function renderJob(job) {
 	const el = document.createElement("article");
 	el.className = "job";
 
-	const title = job.request?.topic || "Untitled";
+	const title = job.request?.prompt || "Untitled";
 	const script = job.script || "";
 	const err = job.error_message
 		? `<div class="job-error">${job.error_message}</div>`
@@ -599,6 +625,10 @@ function renderJob(job) {
 	const output = job.output_path
 		? `<a href="${job.output_path}" target="_blank" rel="noopener" class="job-link">Open Video</a>`
 		: "";
+	const rerunBtn =
+		String(job.status || "").toLowerCase() === "failed"
+			? `<button class="btn btn-secondary btn-sm rerun-job-btn" data-job-id="${job.id}">Re-run</button>`
+			: "";
 
 	el.innerHTML = `
 		<div class="job-meta">
@@ -609,8 +639,27 @@ function renderJob(job) {
 		<pre>${script || "No script"}</pre>
 		${err}
 		${output}
+		${rerunBtn}
 	`;
 	return el;
+}
+
+async function rerunFailedJob(jobId, buttonEl) {
+	if (!jobId) return;
+	if (buttonEl) buttonEl.disabled = true;
+	setStatus("Re-queueing failed job...");
+	try {
+		const resp = await fetch(`/v1/jobs/${encodeURIComponent(jobId)}/rerun`, {
+			method: "POST",
+		});
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) throw new Error(data.error || "Failed to re-run job");
+		setStatus("Failed job re-queued.", "success");
+		await loadJobs();
+	} catch (e) {
+		setStatus(e.message, "error");
+		if (buttonEl) buttonEl.disabled = false;
+	}
 }
 
 async function loadJobs() {
@@ -626,6 +675,11 @@ async function loadJobs() {
 		}
 
 		jobs.forEach((job) => jobsEl.appendChild(renderJob(job)));
+		jobsEl.querySelectorAll(".rerun-job-btn").forEach((btn) => {
+			btn.addEventListener("click", () =>
+				rerunFailedJob(btn.getAttribute("data-job-id"), btn),
+			);
+		});
 	} catch (e) {
 		setStatus(e.message, "error");
 	}
@@ -831,7 +885,14 @@ async function loadSettings() {
 		inputDirEl.value = s.input_videos_dir || "";
 		outputDirEl.value = s.output_videos_dir || "";
 		defaultOrientationEl.value = s.default_video_orientation || "portrait";
-		ttsProviderEl.value = s.tts_provider || "piper";
+		if (ttsProviderEl) {
+			ttsProviderEl.value = (s.tts_provider || "elevenlabs").toLowerCase();
+		}
+		if (piperToggleEl) {
+			piperToggleEl.checked =
+				Boolean(s.piper_enabled) || selectedProvider() === "piper";
+			updatePiperToggleLabel();
+		}
 		defaultLanguageEl.value = s.default_language || "";
 		languageEl.value = s.default_language || "";
 		refreshVoiceDropdowns();
@@ -855,7 +916,8 @@ async function saveSettings() {
 			input_videos_dir: inputDirEl.value.trim(),
 			output_videos_dir: outputDirEl.value.trim(),
 			default_video_orientation: defaultOrientationEl.value,
-			tts_provider: ttsProviderEl.value,
+			tts_provider: selectedProvider(),
+			piper_enabled: Boolean(piperToggleEl?.checked),
 			default_voice: defaultVoiceEl.value.trim(),
 			default_language: defaultLanguageEl.value.trim(),
 		};
@@ -871,6 +933,73 @@ async function saveSettings() {
 		setStatus(e.message, "error");
 	} finally {
 		saveSettingsBtn.disabled = false;
+	}
+}
+
+async function savePiperEnabled() {
+	if (!piperToggleEl) return;
+	piperToggleEl.disabled = true;
+	const enabled = Boolean(piperToggleEl.checked);
+	setStatus(enabled ? "Enabling Piper..." : "Disabling Piper...");
+	try {
+		const resp = await fetch("/api/settings", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ piper_enabled: enabled }),
+		});
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) {
+			throw new Error(data.error || "Failed to update Piper state");
+		}
+		updatePiperToggleLabel();
+		setStatus(enabled ? "Piper enabled." : "Piper disabled.", "success");
+	} catch (e) {
+		piperToggleEl.checked = !piperToggleEl.checked;
+		updatePiperToggleLabel();
+		setStatus(e.message, "error");
+	} finally {
+		piperToggleEl.disabled = false;
+	}
+}
+
+async function saveTTSProviderSelection() {
+	if (!ttsProviderEl) return;
+	const previousPiperEnabled = Boolean(piperToggleEl?.checked);
+	ttsProviderEl.disabled = true;
+	const provider = selectedProvider();
+	const payload = { tts_provider: provider };
+	if (provider === "piper") {
+		payload.piper_enabled = true;
+		if (piperToggleEl && !piperToggleEl.checked) {
+			piperToggleEl.checked = true;
+			updatePiperToggleLabel();
+		}
+	}
+	setStatus(`Switching TTS provider to ${provider}...`);
+	try {
+		const resp = await fetch("/api/settings", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+		const data = await resp.json().catch(() => ({}));
+		if (!resp.ok) {
+			throw new Error(data.error || "Failed to switch TTS provider");
+		}
+		if (piperToggleEl && typeof data.piper_enabled === "boolean") {
+			piperToggleEl.checked = data.piper_enabled;
+			updatePiperToggleLabel();
+		}
+		await loadVoices();
+		setStatus("TTS provider updated.", "success");
+	} catch (e) {
+		if (piperToggleEl) {
+			piperToggleEl.checked = previousPiperEnabled;
+			updatePiperToggleLabel();
+		}
+		setStatus(e.message, "error");
+	} finally {
+		ttsProviderEl.disabled = false;
 	}
 }
 
@@ -951,9 +1080,12 @@ clearQueueBtn?.addEventListener("click", () =>
 );
 orientationEl?.addEventListener("change", updateCustomSizeVisibility);
 languageEl?.addEventListener("change", refreshVoiceDropdowns);
-ttsProviderEl?.addEventListener("change", () => {
-	loadVoices().catch((e) => setStatus(e.message, "error"));
-});
+piperToggleEl?.addEventListener("change", () =>
+	savePiperEnabled().catch((e) => setStatus(e.message, "error")),
+);
+ttsProviderEl?.addEventListener("change", () =>
+	saveTTSProviderSelection().catch((e) => setStatus(e.message, "error")),
+);
 defaultLanguageEl?.addEventListener("change", () => {
 	if (!languageEl.value) {
 		languageEl.value = defaultLanguageEl.value;

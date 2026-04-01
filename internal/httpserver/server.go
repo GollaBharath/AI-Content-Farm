@@ -65,6 +65,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/jobs", s.handleCreateJob)
 	s.mux.HandleFunc("GET /v1/jobs", s.handleListJobs)
 	s.mux.HandleFunc("DELETE /v1/jobs", s.handleClearJobs)
+	s.mux.HandleFunc("POST /v1/jobs/", s.handleRerunJob)
 	s.mux.HandleFunc("GET /v1/jobs/", s.handleGetJob)
 
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
@@ -104,8 +105,8 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.Topic) == "" && strings.TrimSpace(req.Prompt) == "" && strings.TrimSpace(req.ScriptOverride) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing content: provide topic, prompt, or script_override"})
+	if strings.TrimSpace(req.Prompt) == "" && strings.TrimSpace(req.ScriptOverride) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing content: provide prompt or script_override"})
 		return
 	}
 
@@ -147,6 +148,41 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	}
 	job.OutputPath = s.publicOutputPath(job.OutputPath)
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleRerunJob(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/v1/jobs/")
+	if !strings.HasSuffix(path, "/rerun") {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unsupported job action"})
+		return
+	}
+
+	id := strings.TrimSuffix(path, "/rerun")
+	id = strings.TrimSuffix(id, "/")
+	id = strings.TrimSpace(id)
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing job id"})
+		return
+	}
+
+	oldJob, ok := s.store.Get(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+		return
+	}
+
+	if oldJob.Status != job.StatusFailed {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only failed jobs can be re-run"})
+		return
+	}
+
+	newJob, err := s.runner.CreateJob(oldJob.Request)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, newJob)
 }
 
 func (s *Server) publicOutputPath(raw string) string {
@@ -198,7 +234,28 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListVoices(w http.ResponseWriter, r *http.Request) {
-	voices, err := s.tts.ListVoices(r.Context())
+	provider := strings.TrimSpace(r.URL.Query().Get("provider"))
+
+	type providerVoiceLister interface {
+		ListVoicesForProvider(context.Context, string) ([]tts.Voice, error)
+	}
+	type providerLanguageLister interface {
+		ListSupportedLanguagesForProvider(context.Context, string) ([]string, error)
+	}
+
+	var (
+		voices []tts.Voice
+		err    error
+	)
+	if provider != "" {
+		if lister, ok := s.tts.(providerVoiceLister); ok {
+			voices, err = lister.ListVoicesForProvider(r.Context(), provider)
+		} else {
+			voices, err = s.tts.ListVoices(r.Context())
+		}
+	} else {
+		voices, err = s.tts.ListVoices(r.Context())
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -225,6 +282,24 @@ func (s *Server) handleListVoices(w http.ResponseWriter, r *http.Request) {
 	languages := make([]string, 0, len(langsMap))
 	for lang := range langsMap {
 		languages = append(languages, lang)
+	}
+	if provider != "" {
+		if lister, ok := s.tts.(providerLanguageLister); ok {
+			extra, langErr := lister.ListSupportedLanguagesForProvider(r.Context(), provider)
+			if langErr == nil {
+				for _, lang := range extra {
+					trimmed := strings.TrimSpace(lang)
+					if trimmed == "" {
+						continue
+					}
+					langsMap[trimmed] = struct{}{}
+				}
+			}
+		}
+		languages = languages[:0]
+		for lang := range langsMap {
+			languages = append(languages, lang)
+		}
 	}
 	sort.Strings(languages)
 

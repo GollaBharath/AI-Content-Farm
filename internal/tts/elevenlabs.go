@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -44,6 +45,9 @@ func NewElevenLabsClient(cfg ElevenLabsConfig) *ElevenLabsClient {
 	defaultModel := strings.TrimSpace(cfg.DefaultModel)
 	if defaultModel == "" {
 		defaultModel = "eleven_multilingual_v2"
+	}
+	if strings.EqualFold(defaultModel, "eleven_multilingual_v2_5") {
+		defaultModel = "eleven_flash_v2_5"
 	}
 	outputFormat := strings.TrimSpace(cfg.OutputFormat)
 	if outputFormat == "" {
@@ -205,4 +209,25 @@ func (c *ElevenLabsClient) ListVoices(ctx context.Context) ([]Voice, error) {
 	}
 
 	return voices, nil
+}
+
+func (c *ElevenLabsClient) SupportedLanguages() []string {
+	model := strings.ToLower(strings.TrimSpace(c.defaultModel))
+	base := []string{
+		"ar", "bg", "cs", "da", "de", "el", "en", "es", "fi", "fil", "fr", "hi", "hr", "id", "it", "ja", "ko", "ms", "nl", "pl", "pt", "ro", "ru", "sk", "sv", "ta", "tr", "uk", "zh",
+	}
+
+	switch model {
+	case "eleven_flash_v2_5", "eleven_turbo_v2_5", "eleven_multilingual_v2_5":
+		langs := append([]string{}, base...)
+		langs = append(langs, "hu", "no", "vi")
+		sort.Strings(langs)
+		return langs
+	case "eleven_multilingual_v2", "eleven_flash_v2":
+		sort.Strings(base)
+		return base
+	default:
+		sort.Strings(base)
+		return base
+	}
 }

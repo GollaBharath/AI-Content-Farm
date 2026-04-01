@@ -141,14 +141,6 @@ func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 		return
 	}
 
-	topic := strings.TrimSpace(j.Request.Topic)
-	if topic == "" {
-		topic = strings.TrimSpace(j.Request.Prompt)
-	}
-	if topic == "" {
-		topic = "untitled story"
-	}
-
 	scriptText := strings.TrimSpace(j.Request.ScriptOverride)
 	if scriptText == "" {
 		generated, genErr := r.script.Generate(ctx, j.Request)
@@ -206,7 +198,7 @@ func (r *Runner) process(ctx context.Context, workerID int, jobID string) {
 		customHeight = cfg.DefaultVideoHeight
 	}
 
-	slug := sanitize(topic)
+	slug := sanitize(j.Request.Prompt)
 	videoPath, err := r.video.Render(ctx, video.RenderRequest{
 		AudioPath:       voiceoverPath,
 		Topic:           slug,
@@ -242,6 +234,13 @@ func sanitize(s string) string {
 	s = strings.Trim(s, "-")
 	if s == "" {
 		return "untitled"
+	}
+	const maxSlugLen = 80
+	if len(s) > maxSlugLen {
+		s = strings.Trim(s[:maxSlugLen], "-")
+		if s == "" {
+			return "untitled"
+		}
 	}
 	return filepath.Clean(s)
 }

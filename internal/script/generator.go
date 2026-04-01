@@ -113,19 +113,12 @@ func (g *GeminiOpenRouterGenerator) Generate(ctx context.Context, req job.Reques
 }
 
 func (g *GeminiOpenRouterGenerator) callGemini(ctx context.Context, req job.Request) (GeneratedContent, error) {
-		// Always use 45s as target length for script generation
-		targetSecs := 60
-	topic := strings.TrimSpace(req.Topic)
-	if topic == "" {
-		topic = "a surprising story"
-	}
-
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
-		prompt = "Write a clean, engaging faceless short script."
+		prompt = "Write a clean, engaging faceless short video script."
 	}
 
-	userPrompt := fmt.Sprintf("Topic: %s\nTarget length: about %d seconds\nExtra direction: %s\n\nWrite one script with a strong hook, fast pacing, and clear ending CTA.", topic, targetSecs, prompt)
+	userPrompt := prompt
 
 	payload := geminiRequest{
 		Contents: []struct {
@@ -187,20 +180,13 @@ func (g *GeminiOpenRouterGenerator) callGemini(ctx context.Context, req job.Requ
 }
 
 func (g *GeminiOpenRouterGenerator) callOpenRouter(ctx context.Context, req job.Request) (GeneratedContent, error) {
-		// Always use 45s as target length for script generation
-		targetSecs := 60
-	topic := strings.TrimSpace(req.Topic)
-	if topic == "" {
-		topic = "a surprising story"
-	}
-
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
-		prompt = "Write a clean, engaging faceless short script."
+		prompt = "Write a clean, engaging faceless short video script."
 	}
 
-	systemMsg := "You write concise scripts for faceless short videos. Output plain script text only. No markdown, no stage directions."
-	userMsg := fmt.Sprintf("Topic: %s\nTarget length: about %d seconds\nExtra direction: %s\n\nWrite one script with a strong hook, fast pacing, and clear ending CTA.", topic, targetSecs, prompt)
+	systemMsg := "You write concise scripts for faceless short videos. Output as JSON with 'script' field containing the script."
+	userMsg := prompt
 
 	payload := openRouterRequest{
 		Model: g.openRouterModel,
@@ -632,22 +618,11 @@ func dedupeTags(tags []string) []string {
 }
 
 func fallbackContent(req job.Request) GeneratedContent {
-	topic := strings.TrimSpace(req.Topic)
-	if topic == "" {
-		topic = "a surprising story"
-	}
-	extra := strings.TrimSpace(req.Prompt)
-	if extra == "" {
-		extra = "Keep it fast and engaging."
+	script := strings.TrimSpace(req.Prompt)
+	if script == "" {
+		script = "Hook: You won't believe this. Today we break down something surprising in under a minute. First, the part nobody tells you. Second, the trick that changes everything. Third, the move you can use right now. Follow for the next one."
 	}
 	return GeneratedContent{
-		Title: topic,
-		Script: "Hook: You are not ready for this. " +
-		"Today we break down " + topic + " in under a minute. " +
-		"First, the part nobody tells you. " +
-		"Second, the trick that changes everything. " +
-		"Third, the move you can use right now. " +
-		"" + extra + " " +
-		"Follow for the next one.",
+		Script: script,
 	}
 }

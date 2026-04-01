@@ -12,21 +12,21 @@ import (
 )
 
 type Settings struct {
-	InputVideosDir          string `json:"input_videos_dir"`
-	OutputVideosDir         string `json:"output_videos_dir"`
-	DefaultVideoOrientation string `json:"default_video_orientation"`
-	DefaultVideoWidth       int    `json:"default_video_width"`
-	DefaultVideoHeight      int    `json:"default_video_height"`
-	TTSProvider             string `json:"tts_provider"`
-	DefaultVoice            string `json:"default_voice"`
-	DefaultLanguage         string `json:"default_language"`
-	DefaultPromptIdea       string `json:"default_prompt_idea"`
+	InputVideosDir          string   `json:"input_videos_dir"`
+	OutputVideosDir         string   `json:"output_videos_dir"`
+	DefaultVideoOrientation string   `json:"default_video_orientation"`
+	DefaultVideoWidth       int      `json:"default_video_width"`
+	DefaultVideoHeight      int      `json:"default_video_height"`
+	TTSProvider             string   `json:"tts_provider"`
+	PiperEnabled            bool     `json:"piper_enabled"`
+	DefaultVoice            string   `json:"default_voice"`
+	DefaultLanguage         string   `json:"default_language"`
+	DefaultPromptIdea       string   `json:"default_prompt_idea"`
 	PromptPresets           []Preset `json:"prompt_presets"`
 }
 
 type Preset struct {
 	Name            string `json:"name"`
-	Topic           string `json:"topic"`
 	Prompt          string `json:"prompt"`
 	ScriptOverride  string `json:"script_override"`
 	Voice           string `json:"voice"`
@@ -38,15 +38,16 @@ type Preset struct {
 }
 
 type Update struct {
-	InputVideosDir          *string `json:"input_videos_dir"`
-	OutputVideosDir         *string `json:"output_videos_dir"`
-	DefaultVideoOrientation *string `json:"default_video_orientation"`
-	DefaultVideoWidth       *int    `json:"default_video_width"`
-	DefaultVideoHeight      *int    `json:"default_video_height"`
-	TTSProvider             *string `json:"tts_provider"`
-	DefaultVoice            *string `json:"default_voice"`
-	DefaultLanguage         *string `json:"default_language"`
-	DefaultPromptIdea       *string `json:"default_prompt_idea"`
+	InputVideosDir          *string  `json:"input_videos_dir"`
+	OutputVideosDir         *string  `json:"output_videos_dir"`
+	DefaultVideoOrientation *string  `json:"default_video_orientation"`
+	DefaultVideoWidth       *int     `json:"default_video_width"`
+	DefaultVideoHeight      *int     `json:"default_video_height"`
+	TTSProvider             *string  `json:"tts_provider"`
+	PiperEnabled            *bool    `json:"piper_enabled"`
+	DefaultVoice            *string  `json:"default_voice"`
+	DefaultLanguage         *string  `json:"default_language"`
+	DefaultPromptIdea       *string  `json:"default_prompt_idea"`
 	PromptPresets           []Preset `json:"prompt_presets"`
 }
 
@@ -113,6 +114,8 @@ func (s *Store) Get() (Settings, error) {
 			cfg.DefaultVideoHeight = atoiOrZero(value)
 		case "tts_provider":
 			cfg.TTSProvider = normalizeTTSProvider(value)
+		case "piper_enabled":
+			cfg.PiperEnabled = parseBoolOrDefault(value, s.defaults.PiperEnabled)
 		case "default_voice":
 			cfg.DefaultVoice = value
 		case "default_language":
@@ -162,6 +165,9 @@ func (s *Store) Update(update Update) (Settings, error) {
 	if update.TTSProvider != nil {
 		cfg.TTSProvider = normalizeTTSProvider(*update.TTSProvider)
 	}
+	if update.PiperEnabled != nil {
+		cfg.PiperEnabled = *update.PiperEnabled
+	}
 	if update.DefaultVoice != nil {
 		cfg.DefaultVoice = strings.TrimSpace(*update.DefaultVoice)
 	}
@@ -191,6 +197,7 @@ func (s *Store) Update(update Update) (Settings, error) {
 		"default_video_width":       strconv.Itoa(cfg.DefaultVideoWidth),
 		"default_video_height":      strconv.Itoa(cfg.DefaultVideoHeight),
 		"tts_provider":              cfg.TTSProvider,
+		"piper_enabled":             strconv.FormatBool(cfg.PiperEnabled),
 		"default_voice":             cfg.DefaultVoice,
 		"default_language":          cfg.DefaultLanguage,
 		"default_prompt_idea":       cfg.DefaultPromptIdea,
@@ -236,6 +243,8 @@ func (s *Store) getLocked() (Settings, error) {
 			cfg.DefaultVideoHeight = atoiOrZero(value)
 		case "tts_provider":
 			cfg.TTSProvider = normalizeTTSProvider(value)
+		case "piper_enabled":
+			cfg.PiperEnabled = parseBoolOrDefault(value, s.defaults.PiperEnabled)
 		case "default_voice":
 			cfg.DefaultVoice = value
 		case "default_language":
@@ -286,6 +295,14 @@ func normalizeTTSProvider(value string) string {
 	}
 }
 
+func parseBoolOrDefault(value string, defaultValue bool) bool {
+	b, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return defaultValue
+	}
+	return b
+}
+
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -311,7 +328,6 @@ func sanitizePresets(presets []Preset) []Preset {
 		if p.Name == "" {
 			continue
 		}
-		p.Topic = strings.TrimSpace(p.Topic)
 		p.Prompt = strings.TrimSpace(p.Prompt)
 		p.ScriptOverride = strings.TrimSpace(p.ScriptOverride)
 		p.Voice = strings.TrimSpace(p.Voice)

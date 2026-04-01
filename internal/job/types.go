@@ -12,7 +12,6 @@ const (
 )
 
 type Request struct {
-	Topic           string `json:"topic"`
 	Prompt          string `json:"prompt"`
 	ScriptOverride  string `json:"script_override"`
 	Voice           string `json:"voice"`

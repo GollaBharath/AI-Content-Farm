@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -177,11 +178,18 @@ func resolveBackground(inputDir, selected string) (string, error) {
 
 func sanitize(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "/", "-")
-	s = strings.ReplaceAll(s, "\\", "-")
+	re := regexp.MustCompile(`[^a-z0-9]+`)
+	s = re.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
 	if s == "" {
 		return "untitled"
+	}
+	const maxSlugLen = 80
+	if len(s) > maxSlugLen {
+		s = strings.Trim(s[:maxSlugLen], "-")
+		if s == "" {
+			return "untitled"
+		}
 	}
 	return s
 }

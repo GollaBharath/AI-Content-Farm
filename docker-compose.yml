@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: aicf-api
     env_file: ".env"
+    environment:
+      TTS_BASE_URL: "http://tts:5002"
     ports:
       - "${PORT}:${PORT}"
     volumes:

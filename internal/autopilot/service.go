@@ -11,7 +11,6 @@ import (
 
 type Config struct {
 	EverySeconds int
-	Topic        string
 	Prompt       string
 	Voice        string
 }
@@ -23,7 +22,6 @@ func Start(ctx context.Context, runner *pipeline.Runner, cfg Config) {
 
 	enqueue := func() {
 		req := job.Request{
-			Topic:  cfg.Topic,
 			Prompt: cfg.Prompt,
 			Voice:  cfg.Voice,
 		}

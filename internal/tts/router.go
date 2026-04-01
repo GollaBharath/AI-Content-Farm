@@ -105,6 +105,45 @@ func (r *ProviderRouter) ListVoices(ctx context.Context) ([]Voice, error) {
 	}
 }
 
+func (r *ProviderRouter) ListVoicesForProvider(ctx context.Context, provider string) ([]Voice, error) {
+	switch normalizeProvider(provider) {
+	case ProviderPiper:
+		return r.piper.ListVoices(ctx)
+	case ProviderElevenLabs:
+		if r.elevenLabs == nil {
+			return r.piper.ListVoices(ctx)
+		}
+		return r.elevenLabs.ListVoices(ctx)
+	case ProviderAuto:
+		if r.elevenLabs == nil {
+			return r.piper.ListVoices(ctx)
+		}
+		voices, err := r.elevenLabs.ListVoices(ctx)
+		if err == nil {
+			return voices, nil
+		}
+		return r.piper.ListVoices(ctx)
+	default:
+		return r.piper.ListVoices(ctx)
+	}
+}
+
+func (r *ProviderRouter) ListSupportedLanguagesForProvider(_ context.Context, provider string) ([]string, error) {
+	type languageSupporter interface {
+		SupportedLanguages() []string
+	}
+
+	switch normalizeProvider(provider) {
+	case ProviderElevenLabs, ProviderAuto:
+		if langClient, ok := r.elevenLabs.(languageSupporter); ok {
+			return langClient.SupportedLanguages(), nil
+		}
+		return []string{}, nil
+	default:
+		return []string{}, nil
+	}
+}
+
 func (r *ProviderRouter) Preview(ctx context.Context, text, voice, language string) ([]byte, error) {
 	switch r.currentProvider(ctx) {
 	case ProviderPiper:

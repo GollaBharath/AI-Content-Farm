@@ -191,6 +191,58 @@ func (c *HTTPClient) ListVoices(ctx context.Context) ([]Voice, error) {
 		return nil, fmt.Errorf("tts base URL cannot be empty")
 	}
 
+	jsonReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/voices", nil)
+	if err == nil {
+		jsonResp, jsonErr := c.http.Do(jsonReq)
+		if jsonErr == nil {
+			defer jsonResp.Body.Close()
+			if jsonResp.StatusCode >= 200 && jsonResp.StatusCode < 300 {
+				var parsed struct {
+					Voices []struct {
+						Key               string `json:"key"`
+						Name              string `json:"name"`
+						LanguageCode      string `json:"languageCode"`
+						LanguageCodeSnake string `json:"language_code"`
+						Quality           string `json:"quality"`
+					} `json:"voices"`
+				}
+				if decodeErr := json.NewDecoder(io.LimitReader(jsonResp.Body, 4*1024*1024)).Decode(&parsed); decodeErr == nil {
+					voices := make([]Voice, 0, len(parsed.Voices))
+					for _, v := range parsed.Voices {
+						key := strings.TrimSpace(v.Key)
+						if key == "" {
+							continue
+						}
+						language := strings.TrimSpace(v.LanguageCode)
+						if language == "" {
+							language = strings.TrimSpace(v.LanguageCodeSnake)
+						}
+						name := strings.TrimSpace(v.Name)
+						if name == "" {
+							name = key
+						}
+						voices = append(voices, Voice{
+							Key:          key,
+							Name:         name,
+							LanguageCode: language,
+							Quality:      strings.TrimSpace(v.Quality),
+						})
+					}
+					sort.Slice(voices, func(i, j int) bool {
+						if voices[i].LanguageCode == voices[j].LanguageCode {
+							if voices[i].Name == voices[j].Name {
+								return voices[i].Quality < voices[j].Quality
+							}
+							return voices[i].Name < voices[j].Name
+						}
+						return voices[i].LanguageCode < voices[j].LanguageCode
+					})
+					return voices, nil
+				}
+			}
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("build voices request: %w", err)
